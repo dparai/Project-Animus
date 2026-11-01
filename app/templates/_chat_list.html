@@ -1,0 +1,17 @@
+<form method="post" action="/counselor/new"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button class="btn-main chat-new" type="submit">New conversation</button>
+</form>
+{% if convs %}
+<ul class="chat-convs" aria-label="Conversations">
+  {% for c in convs %}
+  <li>
+    <a class="chat-conv{{ ' is-current' if c.id == conv_id else '' }}" href="/counselor/{{ c.id }}"{% if c.id == conv_id %} aria-current="page"{% endif %}>
+      <span class="chat-conv-when num">{{ c.when }}</span>
+      <span class="chat-conv-meta">{{ c.count }} message{{ '' if c.count == 1 else 's' }}{% if c.ended %} · Ended{% endif %}</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="chat-none">No conversations yet.</p>
+{% endif %}

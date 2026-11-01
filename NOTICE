@@ -1,0 +1,13 @@
+Third-party files served locally from app/static/ (sources and checksums: app/static/VERSIONS.md):
+
+- htmx 2.0.4 (app/static/htmx-2.0.4.min.js)
+  Copyright (c) Big Sky Software. License: BSD 2-Clause.
+- Tailwind CSS Play script 3.4.17 (app/static/tailwind-play.js)
+  Copyright (c) Tailwind Labs, Inc. License: MIT.
+- Inter, variable, latin subset (app/static/fonts/inter-latin-variable.woff2)
+  Copyright (c) The Inter Project Authors. License: SIL Open Font License 1.1.
+- Instrument Serif, regular, latin subset (app/static/fonts/instrument-serif-400-latin.woff2)
+  Copyright (c) The Instrument Serif Project Authors. License: SIL Open Font License 1.1.
+
+Python dependencies are listed in requirements.txt and keep their own licenses.
+Project Animus itself is MIT licensed (see LICENSE).

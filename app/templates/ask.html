@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Ask · Animus{% endblock %}
+{% block content %}
+<div class="page bounded">
+  <header class="ask-head">
+    <h1 class="ask-title">Ask your journal</h1>
+    <p class="ask-sub">Answers come only from your entries. Nothing you ask is saved.</p>
+  </header>
+
+  <form class="ask-form" hx-post="/ask" hx-target="#ask-result" hx-swap="innerHTML" hx-disabled-elt="#ask-go" hx-indicator="#ask-form-state" autocomplete="off">
+    <label class="ask-label" for="ask-q">Your question</label>
+    <div class="ask-row">
+      <input id="ask-q" class="ask-input" type="text" name="question" maxlength="500" required enterkeyhint="send" placeholder="When did I last feel proud of my work?">
+      <button id="ask-go" class="btn-main ask-go" type="submit">Ask</button>
+    </div>
+    <p id="ask-form-state" class="ask-state" aria-hidden="true"><span class="ask-dot"></span>Reading your entries. This can take a minute.</p>
+    <p id="ask-live" class="sr-only" aria-live="polite"></p>
+  </form>
+
+  <section id="ask-result" class="ask-region" aria-busy="false" aria-label="Answer" tabindex="0">
+    <p class="ask-idle">Ask about something you wrote, such as a person, a place or a decision. The answer is followed by the passages it rests on.</p>
+  </section>
+</div>
+
+<style>
+  .ask-head { flex: none; display: grid; gap: 2px; padding-bottom: 14px; }
+  .ask-title { font-size: var(--fs-title); line-height: 28px; font-weight: 600; margin: 0; }
+  .ask-sub { color: var(--muted); font-size: 13px; line-height: 20px; margin: 0; max-width: 62ch; }
+  .ask-form { flex: none; display: grid; gap: 6px; padding-bottom: 14px; }
+  .ask-label { font-size: var(--fs-small); line-height: 16px; color: var(--muted); }
+  .ask-row { display: flex; gap: 8px; }
+  .ask-input { flex: 1; min-width: 0; box-sizing: border-box; min-height: 48px; background: var(--raised); border: 0; border-radius: var(--radius-control); padding: 0 20px; font: inherit; font-size: 16px; color: var(--text); }
+  .ask-input::placeholder { color: var(--faint); opacity: 1; }
+  .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .ask-go { flex: none; min-width: 80px; padding: 0 22px; }
+  .ask-state { display: none; align-items: center; gap: 8px; margin: 0; min-height: 20px; color: var(--muted); font-size: var(--fs-small); }
+  .ask-state.htmx-request { display: flex; }
+  .ask-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--accent); animation: ask-pulse 1.1s ease-in-out infinite; }
+  @keyframes ask-pulse { 50% { opacity: .25; } }
+
+  .ask-region { position: relative; flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--radius-card); scrollbar-color: var(--control) transparent; scrollbar-width: thin; }
+  .ask-idle { margin: 0; padding: 4px 4px; color: var(--muted); max-width: 56ch; }
+  .ask-card { background: var(--surface); border-radius: var(--radius-card); padding: var(--pad); display: grid; gap: 14px; }
+  .ask-answer { margin: 0; font-size: 16px; line-height: 24px; overflow-wrap: anywhere; white-space: pre-line; }
+  .ask-note-title { margin: 0; font-size: 14px; font-weight: 600; }
+  .ask-note { margin: 0; color: var(--muted); }
+  .ask-code { margin: 0; color: var(--faint); font-size: var(--fs-small); }
+  .ask-card.is-error { background: var(--pill-warning-bg); }
+  .ask-card.is-error .ask-note-title { color: var(--pill-warning-ink); }
+  .ev-head { margin: 0; font-size: var(--fs-small); line-height: 16px; color: var(--muted); font-weight: 400; }
+  .ev-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .ev { background: var(--ground); border-radius: 16px; padding: 12px 16px; display: grid; gap: 4px; }
+  .ev-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 12px; }
+  .ev-date { color: var(--muted); font-size: 13px; }
+  .ev-quote { margin: 0; overflow-wrap: anywhere; }
+  .ev-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { .ask-dot { animation: none; } }
+</style>
+<script nonce="{{ csp_nonce }}">
+  // Busy state, screen-reader announcement and a calm message when the request itself fails.
+  (function () {
+    var form = document.querySelector('.ask-form');
+    var result = document.getElementById('ask-result');
+    var live = document.getElementById('ask-live');
+    if (!form || !result || !live) { return; }
+    function busy(on) {
+      result.setAttribute('aria-busy', on ? 'true' : 'false');
+      live.textContent = on ? 'Reading your entries.' : '';
+    }
+    function fail() {
+      busy(false);
+      var card = document.createElement('div');
+      card.className = 'ask-card is-error';
+      var title = document.createElement('p');
+      title.className = 'ask-note-title';
+      title.textContent = 'No answer this time';
+      var note = document.createElement('p');
+      note.className = 'ask-note';
+      note.textContent = "Couldn't reach the app. Try again.";
+      card.appendChild(title);
+      card.appendChild(note);
+      result.replaceChildren(card);
+      live.textContent = "Couldn't reach the app. Try again.";
+    }
+    form.addEventListener('htmx:beforeRequest', function () { busy(true); });
+    form.addEventListener('htmx:afterRequest', function (e) { if (e.detail.successful || e.detail.failed === false) { busy(false); } });
+    form.addEventListener('htmx:responseError', fail);
+    form.addEventListener('htmx:sendError', fail);
+  })();
+</script>
+{% endblock %}

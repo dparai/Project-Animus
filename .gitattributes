@@ -1,0 +1,6 @@
+* text=auto
+app/llm.py text eol=crlf
+app/templates/_entry_row.html text eol=crlf
+app/templates/base.html text eol=crlf
+app/templates/entries.html text eol=crlf
+app/templates/write.html text eol=crlf

@@ -1,0 +1,38 @@
+[Unit]
+Description=Animus private journal
+After=network.target
+
+[Service]
+User=animus
+WorkingDirectory=/opt/animus
+EnvironmentFile=/opt/animus/.env
+Environment=ANIMUS_DB_PATH=/opt/animus/data/vault.db
+ExecStart=/opt/animus/.venv/bin/uvicorn --factory app.main:create_app --host 127.0.0.1 --port 8100
+Restart=on-failure
+MemoryMax=1536M
+CPUQuota=100%
+CPUWeight=50
+IOWeight=50
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/animus/data
+PrivateTmp=yes
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

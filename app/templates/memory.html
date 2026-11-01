@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Memory · Animus{% endblock %}
+{% block content %}
+<div class="page bounded">
+  <header class="mem-head">
+    <h1 class="mem-title">Memory</h1>
+    <p class="mem-sub">These notes are sent to the AI whenever it writes your reflections. Delete any you disagree with.{% if beyond_prompt %} Not all are sent: your corrections go first (the newest {{ prompt_corrections }} at most), then the newest other notes, {{ prompt_limit }} in total at most. Right now {{ sent }} are sent.{% endif %}</p>
+  </header>
+
+  <section class="list-region" aria-label="Notes the AI remembers" tabindex="0">
+    <ul id="notes" class="notes">
+      {% for n in notes %}
+      <li id="note-{{ n.id }}" class="note-row">
+        <div class="note-head">
+          <span class="note-kind">{{ n.kind }}</span>
+          <time class="note-when num" datetime="{{ n.iso }}">{{ n.when }}</time>
+          {% if n.source %}<span class="note-source">{{ n.source }}</span>{% endif %}
+        </div>
+        <p class="note-text">{{ n.text }}</p>
+        <button type="button" class="act note-del" hx-delete="/memory/{{ n.id }}" hx-confirm="Delete this note? The AI will stop using it." hx-target="#note-{{ n.id }}" hx-swap="outerHTML" aria-label="Delete note from {{ n.when }}">Delete</button>
+      </li>
+      {% endfor %}
+      {% if capped %}
+      <li class="note-end">Showing the newest {{ shown }} notes. Older ones are kept but not listed here.</li>
+      {% endif %}
+    </ul>
+    <div id="empty" class="empty"{% if notes %} hidden{% endif %}>
+      <p class="empty-title">No notes yet.</p>
+      <p class="empty-text">When you press &ldquo;Not what I meant&rdquo; on a point in a reflection, the note lands here.</p>
+      <a class="textlink" href="/reflections">Go to Reflections</a>
+    </div>
+  </section>
+</div>
+
+<style>
+  .mem-head { flex: none; display: grid; gap: 2px; padding-bottom: 14px; }
+  .mem-title { font-size: var(--fs-title); line-height: 28px; font-weight: 600; margin: 0; }
+  .mem-sub { color: var(--muted); font-size: 13px; line-height: 20px; margin: 0; max-width: 62ch; }
+  .list-region { position: relative; flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--radius-card); scrollbar-color: var(--control) transparent; scrollbar-width: thin; }
+
+  .notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .note-row { display: grid; grid-template-areas: "head del" "text text"; grid-template-columns: 1fr auto; gap: 4px 8px; min-height: var(--row-height); box-sizing: border-box; padding: 12px 8px 12px 16px; background: var(--surface); border-radius: 16px; }
+  .note-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; padding-top: 2px; }
+  .note-kind { display: inline-flex; align-items: center; min-height: 20px; padding: 0 10px; border-radius: 999px; background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); font-size: var(--fs-small); line-height: 16px; }
+  .note-when { color: var(--muted); font-size: 13px; }
+  .note-source { color: var(--faint); font-size: var(--fs-small); }
+  .note-text { grid-area: text; margin: 0; padding-right: 8px; color: var(--text); white-space: pre-line; overflow-wrap: anywhere; }
+  .note-del { grid-area: del; margin: -8px 0 -4px; align-self: start; }
+  .note-end { color: var(--faint); font-size: var(--fs-small); text-align: center; padding: 8px 0 4px; }
+  .act { min-height: 44px; min-width: 44px; padding: 0 12px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); font: inherit; cursor: pointer; transition: background 160ms ease, color 160ms ease, transform 160ms ease; }
+  .act:hover { background: var(--raised); color: var(--text); }
+  .act:active { transform: scale(.97); }
+  .act.htmx-request { opacity: .6; cursor: progress; }
+
+  .empty { background: var(--surface); border-radius: 16px; padding: 24px 20px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; }
+  .empty[hidden] { display: none; }
+  .empty-title { margin: 0; color: var(--text); font-weight: 600; }
+  .empty-text { margin: 0; max-width: 48ch; }
+  .textlink { color: var(--text); text-decoration: underline; text-underline-offset: 3px; min-height: 44px; display: inline-flex; align-items: center; }
+  @media (prefers-reduced-motion: reduce) { .act { transition: none; } .act:active { transform: none; } }
+</style>
+<script nonce="{{ csp_nonce }}">
+  // Deleting the last note brings the empty state back without a reload.
+  (function () {
+    var list = document.getElementById('notes');
+    var empty = document.getElementById('empty');
+    if (!list || !empty) { return; }
+    new MutationObserver(function () {
+      if (list.querySelector('.note-row')) { return; }
+      empty.hidden = false;
+      var end = list.querySelector('.note-end');
+      if (end) { end.remove(); }
+    }).observe(list, { childList: true });
+  })();
+</script>
+{% endblock %}

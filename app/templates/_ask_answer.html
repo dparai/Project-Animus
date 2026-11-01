@@ -1,0 +1,29 @@
+{% if r.error %}
+<div class="ask-card is-error" data-state="error" data-reason="{{ r.error }}">
+  <p class="ask-note-title">No answer this time</p>
+  <p class="ask-note">{{ r.answer }}</p>
+  <p class="ask-code">Reason: {{ r.error }}. Your question was not saved.</p>
+  <p class="ask-note">Try again in a moment.</p>
+</div>
+{% elif not r.found %}
+<div class="ask-card" data-state="not-found">
+  <p class="ask-note-title">Not in your journal</p>
+  <p class="ask-note">{{ r.answer }} Try different words, or a name or place you would have used when writing.</p>
+</div>
+{% else %}
+<div class="ask-card" data-state="answer">
+  <p class="ask-answer">{{ r.answer }}</p>
+  <h2 class="ev-head">Evidence from your entries</h2>
+  <ul class="ev-list">
+    {% for c in citations %}
+    <li class="ev">
+      <div class="ev-top">
+        <time class="ev-date num" datetime="{{ c.iso }}">{{ c.when }}</time>
+        <a class="ev-link" href="/entries/{{ c.entry_id }}">Open entry</a>
+      </div>
+      <blockquote class="ev-quote">{{ c.quote }}</blockquote>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}

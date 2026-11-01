@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Entries · Animus{% endblock %}
+{% block content %}
+<div class="page bounded">
+  <header class="entries-head">
+    <h1 class="entries-title">Entries</h1>
+    <p class="entries-sub">{% if paged %}Continuing from the first page, newest first. <a class="textlink inline" href="/entries">Back to the newest</a>{% else %}Newest first.{% endif %}</p>
+  </header>
+
+  <section class="list-region" aria-label="Your entries" tabindex="0">
+    <ul id="entries" class="entries">
+      {% include "_entries_more.html" %}
+    </ul>
+    <div id="empty" class="empty"{% if rows or next_cursor %} hidden{% endif %}>
+      {% if paged %}
+      <p style="margin: 0;">No older entries here.</p>
+      <a class="textlink" href="/entries">Back to the newest</a>
+      {% else %}
+      <p style="margin: 0;">Nothing here yet. Your first entry will show up on this page.</p>
+      <a class="textlink" href="/">Write an entry</a>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<style>
+  .entries-head { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 16px; padding-bottom: 12px; }
+  .entries-title { font-size: var(--fs-title); line-height: 28px; font-weight: 600; margin: 0; }
+  .entries-sub { color: var(--muted); font-size: 13px; line-height: 20px; margin: 0; }
+  .list-region { position: relative; flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--radius-card); scrollbar-color: var(--control) transparent; scrollbar-width: thin; }
+
+  .entries { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .entry { display: grid; grid-template-areas: "head actions" "text text"; grid-template-columns: 1fr auto; gap: 4px 8px; min-height: var(--row-height); box-sizing: border-box; padding: 12px 8px 12px 16px; background: var(--surface); border-radius: 16px; }
+  .entry-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; min-width: 0; padding-top: 2px; }
+  .entry-when { font-weight: 500; }
+  .entry-meta { color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; }
+  .entry-meta .val { color: var(--text); }
+  .entry-meta .energy-fig { color: var(--accent); }
+  .entry-text { grid-area: text; margin: 0; padding-right: 8px; color: var(--muted); white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .entry-actions { grid-area: actions; display: flex; gap: 0; margin: -8px 0 -4px; align-self: start; }
+  .act { min-height: 44px; min-width: 44px; padding: 0 12px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); font: inherit; cursor: pointer; transition: background 160ms ease, color 160ms ease, transform 160ms ease; }
+  .act:hover { background: var(--raised); color: var(--text); }
+  .act:active { transform: scale(.97); }
+  .act:disabled { opacity: .6; cursor: progress; }
+
+  .empty { background: var(--surface); border-radius: 16px; padding: 24px 20px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; }
+  .empty[hidden] { display: none; }
+  .more { list-style: none; display: flex; justify-content: center; padding: 8px 0 4px; }
+  .more.end { color: var(--faint); min-height: 44px; align-items: center; }
+  .btn-older { min-height: 44px; padding: 0 24px; border: 1px solid var(--control); /* taste-skill-ignore: outlined secondary button per sheet */ border-radius: var(--radius-control); background: transparent; color: var(--text); font: inherit; text-decoration: none; display: inline-flex; align-items: center; cursor: pointer; transition: background 160ms ease, transform 160ms ease; }
+  .btn-older:hover { background: var(--raised); }
+  .btn-older:active { transform: scale(.98); }
+  .htmx-request.btn-older { opacity: .6; cursor: progress; }
+  .textlink.inline { display: inline; min-height: 0; }
+  .textlink { color: var(--text); text-decoration: underline; text-underline-offset: 3px; min-height: 44px; display: inline-flex; align-items: center; }
+
+  /* Inline edit */
+  .entry.editing { display: block; padding: 16px; }
+  .edit-label { display: block; font-size: 14px; font-weight: 600; margin: 0 0 6px; padding: 0; }
+  .edit-block + .edit-block { margin-top: 14px; }
+  .moods.six { grid-template-columns: repeat(3, 1fr); }
+  @media (min-width: 768px) { .moods.six { grid-template-columns: repeat(6, 1fr); } }
+  .moods.six .mood-label { min-height: 64px; }
+  .select { appearance: none; -webkit-appearance: none; min-height: var(--control-height); padding: 0 40px 0 16px; border: 0; border-radius: var(--radius-control); background: var(--raised) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%23b4b4b4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 14px center; font: inherit; font-size: 16px; color: var(--text); min-width: 160px; }
+  .entry.editing .field-text { min-height: 120px; resize: vertical; }
+  .edit-actions { display: flex; gap: 8px; margin-top: 16px; }
+  .edit-actions .btn-main { padding: 0 24px; }
+  .entry.editing .msg-error { margin-top: 8px; }
+  @media (prefers-reduced-motion: reduce) { .act, .btn-older { transition: none; } .act:active, .btn-older:active { transform: none; } }
+</style>
+<script nonce="{{ csp_nonce }}">
+  // The empty state shows only when the list has no entry rows and no older-entries link, and
+  // follows the list as rows come and go (a mutation observer, because a deleted row's own swap
+  // event does not reliably reach the page).
+  (function () {
+    var list = document.getElementById('entries');
+    var empty = document.getElementById('empty');
+    if (!list || !empty) { return; }
+    function sync() {
+      var has = list.querySelector('.entry') || list.querySelector('.btn-older');
+      empty.hidden = !!has;
+      if (!has) {
+        var end = document.getElementById('end');
+        if (end) { end.remove(); }
+      }
+    }
+    new MutationObserver(sync).observe(list, { childList: true });
+  })();
+</script>
+{% endblock %}

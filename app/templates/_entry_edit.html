@@ -1,0 +1,39 @@
+<li id="entry-{{ e.id }}" class="entry editing">
+  <form hx-put="/entries/{{ e.id }}" hx-target="#entry-{{ e.id }}" hx-swap="outerHTML" hx-disabled-elt="find button" autocomplete="off" aria-label="Edit entry from {{ e.when }}">
+    <div class="edit-block">
+      <label for="text-{{ e.id }}" class="edit-label">Entry from <time class="num" datetime="{{ e.created_at }}">{{ e.when }}</time></label>
+      <textarea id="text-{{ e.id }}" name="text" rows="8" required class="field-text">{{ form_text }}</textarea>
+      {% if message %}<p id="error-{{ e.id }}" class="msg msg-error" role="alert">{{ message }}</p>{% endif %}
+    </div>
+
+    <fieldset class="edit-block" style="border: 0; margin: 20px 0 0; padding: 0; min-width: 0;">
+      <legend class="edit-label">Mood</legend>
+      <div class="moods six">
+        <div>
+          <input type="radio" name="mood" id="mood-{{ e.id }}-none" value="" class="peer sr-only"{% if not form_mood %} checked{% endif %}>
+          <label for="mood-{{ e.id }}-none" class="mood-label"><span class="e" aria-hidden="true">–</span><span class="t">None</span></label>
+        </div>
+        {% for m in moods %}
+        <div>
+          <input type="radio" name="mood" id="mood-{{ e.id }}-{{ m.key }}" value="{{ m.key }}" class="peer sr-only"{% if form_mood == m.key %} checked{% endif %}>
+          <label for="mood-{{ e.id }}-{{ m.key }}" class="mood-label"><span class="e" aria-hidden="true">{{ m.emoji }}</span><span class="t">{{ m.label }}</span></label>
+        </div>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="edit-block">
+      <label for="energy-{{ e.id }}" class="edit-label">Energy</label>
+      <select id="energy-{{ e.id }}" name="energy" class="select">
+        <option value=""{% if not form_energy %} selected{% endif %}>Not set</option>
+        {% for n in range(1, 11) %}<option value="{{ n }}"{% if form_energy == n|string %} selected{% endif %}>{{ n }}</option>{% endfor %}
+      </select>
+      {% if e.energy_approx %}<p class="hint" style="margin: 8px 0 0;">Imported entry: its energy is approximate until you change it.</p>{% endif %}
+    </div>
+
+    <div class="edit-actions">
+      <button type="submit" class="btn-main">Save</button>
+      <button type="button" class="btn-quiet" hx-get="/entries/{{ e.id }}" hx-target="#entry-{{ e.id }}" hx-swap="outerHTML">Cancel</button>
+    </div>
+  </form>
+</li>

@@ -1,0 +1,94 @@
+{% macro correction_slot(rid, cid) %}
+<div class="claim-actions" id="actions-{{ rid }}-{{ cid }}" data-claim-actions>
+  <button type="button" class="claim-btn" aria-expanded="false" aria-controls="corr-{{ rid }}-{{ cid }}" aria-describedby="text-{{ rid }}-{{ cid }}" hx-get="/reflections/{{ rid }}/claims/{{ cid | urlencode }}/correct" hx-target="#corr-{{ rid }}-{{ cid }}" hx-swap="innerHTML">Not what I meant</button>
+  <div class="corr-slot" id="corr-{{ rid }}-{{ cid }}"></div>
+</div>
+{% endmacro %}
+{% if not r %}
+<div class="empty">
+  {% if kind == 'weekly' %}
+  <p class="empty-title">No weekly reflection yet.</p>
+  <p class="empty-text">Write a few entries, then press Generate now. One is also made for you each Sunday evening.</p>
+  {% else %}
+  <p class="empty-title">No monthly reflection yet.</p>
+  <p class="empty-text">A monthly reflection is built from your weekly ones, on the 1st of each month. Generate now builds one from the weeks you have.</p>
+  {% endif %}
+</div>
+{% elif kind == 'weekly' %}
+<article class="reflection" data-reflection-id="{{ r.id }}">
+  <header class="r-head">
+    <h2 class="r-title">{{ r.title }}</h2>
+    <p class="r-meta num">{% if r.entry_count is not none %}Based on {{ r.entry_count }} {{ 'entry' if r.entry_count == 1 else 'entries' }}, {{ r.range }}{% else %}{{ r.range }}{% endif %}. Generated {{ r.generated }}.</p>
+  </header>
+  {% if r.short %}<p class="note">A quiet week, so this is a short reflection.</p>{% endif %}
+  {% if r.unverified %}<p class="note">None of the AI's points could be checked against your entries, so none are shown.</p>{% endif %}
+  {% for section, title, claims in (('wins', 'Wins', r.wins), ('tough', 'Tough love', r.tough_love)) %}
+  <section class="r-sec" aria-labelledby="h-{{ section }}">
+    <h3 id="h-{{ section }}" class="r-sec-title">{{ title }}</h3>
+    {% if claims %}
+    <ul class="claims">
+      {% for c in claims %}
+      <li class="claim" id="claim-{{ c.id }}" data-claim-id="{{ c.id }}" data-reflection-id="{{ r.id }}">
+        <p class="claim-text" id="text-{{ r.id }}-{{ c.id }}">{{ c.text }}</p>
+        <figure class="quote">
+          <blockquote><p>&ldquo;{{ c.quote }}&rdquo;</p></blockquote>
+          {% if c.when %}<figcaption class="num">Your words, {{ c.when }}</figcaption>{% endif %}
+        </figure>
+        {{ correction_slot(r.id, c.id) }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-text">Nothing to show here this week.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+  <section class="r-sec" aria-labelledby="h-focus">
+    <h3 id="h-focus" class="r-sec-title">Current focus</h3>
+    {% if r.focus %}
+    <ul class="plain-list">{% for f in r.focus %}<li>{{ f }}</li>{% endfor %}</ul>
+    {% else %}
+    <p class="empty-text">No focus was set this week.</p>
+    {% endif %}
+  </section>
+</article>
+{% else %}
+<article class="reflection" data-reflection-id="{{ r.id }}">
+  <header class="r-head">
+    <h2 class="r-title">{{ r.title }}</h2>
+    <p class="r-meta num">Generated {{ r.generated }}.</p>
+  </header>
+  {% if r.short %}<p class="note">Only one weekly reflection fed this month, so this is a short summary.</p>{% endif %}
+  {% if r.unverified %}<p class="note">Nothing usable came back for this month, so nothing is shown.</p>{% endif %}
+  {% if r.summary %}
+  <section class="r-sec" aria-labelledby="h-summary">
+    <h3 id="h-summary" class="r-sec-title">Summary</h3>
+    <p class="claim-text">{{ r.summary }}</p>
+  </section>
+  {% endif %}
+  <section class="r-sec" aria-labelledby="h-patterns">
+    <h3 id="h-patterns" class="r-sec-title">Patterns</h3>
+    {% if r.patterns %}
+    <ul class="claims">
+      {% for p in r.patterns %}
+      <li class="claim" id="pattern-{{ p.id }}" data-pattern-id="{{ p.id }}" data-reflection-id="{{ r.id }}">
+        <p class="claim-text" id="text-{{ r.id }}-{{ p.id }}">{{ p.text }}</p>
+        {% if p.weeks %}<p class="claim-meta num">Seen in the weeks of {{ p.weeks | join(', ') }}</p>{% endif %}
+        {{ correction_slot(r.id, p.id) }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-text">No patterns this month.</p>
+    {% endif %}
+  </section>
+  <section class="r-sec" aria-labelledby="h-next">
+    <h3 id="h-next" class="r-sec-title">Next focus</h3>
+    {% if r.focus_next %}
+    <ul class="plain-list">{% for f in r.focus_next %}<li>{{ f }}</li>{% endfor %}</ul>
+    {% else %}
+    <p class="empty-text">No next focus suggested.</p>
+    {% endif %}
+  </section>
+</article>
+{% endif %}

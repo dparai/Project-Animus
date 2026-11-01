@@ -1,0 +1,14 @@
+<li id="entry-{{ e.id }}" class="entry">
+  <div class="entry-head">
+    <time class="entry-when num" datetime="{{ e.created_at }}">{{ e.when }}</time>
+    <p class="entry-meta num">
+      <span>{% if e.mood %}<span aria-hidden="true">{{ e.mood.emoji }}</span> <span class="val">{{ e.mood.label }}</span>{% else %}<span aria-hidden="true">–</span><span class="sr-only">No mood</span>{% endif %}</span>
+      <span>Energy {% if e.energy is none %}<span aria-hidden="true">–</span><span class="sr-only">not set</span>{% elif e.energy_approx %}<span class="val energy-fig">about {{ e.energy }}</span>{% else %}<span class="val energy-fig">{{ e.energy }}</span>{% endif %}</span>
+    </p>
+  </div>
+  <p class="entry-text">{{ e.text }}</p>
+  <div class="entry-actions">
+    <button type="button" class="act" hx-get="/entries/{{ e.id }}/edit" hx-target="#entry-{{ e.id }}" hx-swap="outerHTML" aria-label="Edit entry from {{ e.when }}">Edit</button>
+    <button type="button" class="act" hx-delete="/entries/{{ e.id }}" hx-confirm="Delete this entry?" hx-target="#entry-{{ e.id }}" hx-swap="outerHTML" aria-label="Delete entry from {{ e.when }}">Delete</button>
+  </div>
+</li>

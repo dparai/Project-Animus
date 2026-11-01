@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#000000">
+  {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
+  <title>{% block title %}Animus{% endblock %}</title>
+  <link rel="preload" href="/static/fonts/inter-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/static/tailwind-play.js"></script>
+  <script src="/static/htmx-2.0.4.min.js" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"></script>
+  <style>
+    /* Self-hosted fonts (SIL OFL 1.1), latin subset; sources and hashes in app/static/VERSIONS.md. */
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 400 600; font-display: swap; src: url("/static/fonts/inter-latin-variable.woff2") format("woff2"); }
+    @font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap; src: url("/static/fonts/instrument-serif-400-latin.woff2") format("woff2"); }
+    :root {
+      color-scheme: dark;
+      --ground: #000000;
+      --surface: #111111;
+      --raised: #2a2a2a;
+      --border: #1a1a1a;
+      --rule: #161616;
+      --control: #444444;
+      --text: #ffffff;
+      --muted: #b4b4b4;
+      --faint: #949494;
+      --accent: #c6f24e;
+      --positive: #c6f24e;
+      --negative: #e5484d;
+      --warning: #e5a93b;
+      --chart-1: #c6f24e;
+      --chart-2: #e6e6e6;
+      --chart-3: #6b6b6b;
+      --pill-positive-bg: #222a10; --pill-positive-ink: #c6f24e;
+      --pill-negative-bg: #2c1a20; --pill-negative-ink: #e5566f;
+      --pill-warning-bg: #2b2414; --pill-warning-ink: #e5a93b;
+      --pill-neutral-bg: #222222; --pill-neutral-ink: #ffffff;
+      --radius-card: 20px;
+      --radius-control: 999px;
+      --row-height: 80px;
+      --sidebar-width: 210px;
+      --gap: 14px;
+      --pad: 22px;
+      --control-height: 44px;
+      --fs-title: 20px;
+      --fs-section: 16px;
+      --fs-kpi: 24px;
+      --fs-body: 14px;
+      --fs-small: 12px;
+      --font: "Inter", system-ui, sans-serif;
+      --font-serif: "Instrument Serif", Georgia, serif;
+    }
+    html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ground); }
+    body { color: var(--text); font-family: var(--font); font-size: var(--fs-body); line-height: 20px; -webkit-font-smoothing: antialiased; }
+    :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    /* Shell: one ground. Left nav at md+, 48px top bar below. The page itself never scrolls. */
+    .shell { height: 100vh; /* taste-skill-ignore: fallback for browsers without dvh */ height: 100dvh; display: flex; flex-direction: column; }
+    .side { display: none; }
+    .frame { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+    .topbar { flex: none; height: 48px; padding: 0 12px 0 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); /* taste-skill-ignore: sheet's 1px rule between shell parts */ }
+    .topbar .name { font-weight: 600; }
+    .navlink { display: inline-flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 12px; border-radius: 10px; color: #bbbbbb; text-decoration: none; transition: color 160ms ease; }
+    .navlink:hover { color: var(--text); }
+    .navlink[aria-current="page"] { color: var(--text); }
+    .navlink svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    .topbar .navlink { min-height: 44px; }
+    .topnav { display: flex; align-items: center; gap: 2px; }
+    .brand { font-weight: 600; font-size: 16px; }
+    .main { position: relative; flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+    /* .page fills the main area; on Write it never gets smaller than its content (then main scrolls, e.g. a phone on its side). */
+    .page { flex: 1 0 auto; min-height: min-content; width: 100%; max-width: 840px; margin: 0 auto; display: flex; flex-direction: column; }
+    .page.bounded { flex: 1 1 0; min-height: 0; }
+    @media (min-width: 768px) {
+      .shell { flex-direction: row; }
+      .side { display: flex; flex: none; width: var(--sidebar-width); flex-direction: column; gap: 4px; padding: 28px 12px; box-sizing: border-box; border-right: 1px solid var(--border); /* taste-skill-ignore: sheet's 1px sidebar rule */ }
+      .side .brand { padding: 0 12px 20px; }
+      .topbar { display: none; }
+      .main { padding: 28px 32px; }
+    }
+
+    /* Panels, fields, buttons */
+    .panel { background: var(--surface); border-radius: var(--radius-card); padding: var(--pad); }
+    .panel-title { font-size: 14px; line-height: 20px; font-weight: 600; margin: 0; padding: 0; }
+    .hint { color: var(--muted); font-size: var(--fs-small); margin: 0; }
+    .field-text { display: block; width: 100%; box-sizing: border-box; min-height: 110px; resize: none; background: var(--raised); border: 0; border-radius: 16px; padding: 14px 16px; font: inherit; font-size: 16px; line-height: 24px; color: var(--text); }
+    .field-text::placeholder { color: var(--faint); opacity: 1; }
+    .field-text:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+    .moods { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+    .mood-label { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 64px; border-radius: 16px; background: var(--raised); cursor: pointer; transition: background 180ms ease; user-select: none; }
+    .mood-label .e { font-size: 24px; line-height: 28px; }
+    .mood-label .t { font-size: var(--fs-small); line-height: 16px; color: var(--muted); }
+    .mood-label:hover { background: #333333; }
+    .mood-label:active { background: var(--control); }
+    input:checked + .mood-label { background: var(--control); outline: 2px solid var(--text); outline-offset: -2px; }
+    input:checked + .mood-label .t { color: var(--text); }
+    input:focus-visible + .mood-label { outline: 2px solid var(--text); outline-offset: 2px; }
+
+    .energy-value { color: var(--faint); min-width: 56px; text-align: right; }
+    .energy-value.set { color: var(--accent); }
+    input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 44px; background: transparent; margin: 0; }
+    input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: var(--control); }
+    input[type=range]::-moz-range-track { height: 4px; border-radius: 999px; background: var(--control); }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -10px; border-radius: 999px; background: var(--accent); border: 3px solid var(--surface); box-sizing: border-box; }
+    input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border-radius: 999px; background: var(--accent); border: 3px solid var(--surface); box-sizing: border-box; }
+    input[type=range].untouched::-webkit-slider-thumb { background: var(--faint); }
+    input[type=range].untouched::-moz-range-thumb { background: var(--faint); }
+
+    /* Primary = inversion: white pill, black text. */
+    .btn-save, .btn-main { min-height: 44px; border: 0; border-radius: var(--radius-control); background: var(--text); color: var(--ground); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 160ms ease, transform 160ms ease, opacity 160ms ease; }
+    .btn-save:hover, .btn-main:hover { background: #e6e6e6; }
+    .btn-save:active, .btn-main:active { transform: scale(.98); }
+    .btn-save:disabled, .btn-main:disabled { opacity: .6; cursor: progress; }
+
+    .btn-quiet { min-height: 44px; padding: 0 20px; border: 1px solid var(--control); /* taste-skill-ignore: outlined secondary button per sheet */ border-radius: var(--radius-control); background: transparent; color: var(--text); font: inherit; cursor: pointer; transition: background 160ms ease; }
+    .btn-quiet:hover { background: var(--raised); }
+    .btn-quiet:disabled { opacity: .6; cursor: progress; }
+    .msg { margin: 0; font-size: var(--fs-body); }
+    .msg-error { display: inline-block; color: var(--pill-negative-ink); background: var(--pill-negative-bg); border-radius: 14px; padding: 2px 12px; }
+    .msg-saved { display: inline-block; color: var(--pill-positive-ink); background: var(--pill-positive-bg); border-radius: 999px; padding: 2px 12px; animation: fade-in 220ms ease-out both; }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      .msg-saved { animation: none; }
+      .mood-label, .btn-save, .btn-main, .btn-quiet, .navlink { transition: none; }
+      .btn-save:active, .btn-main:active { transform: none; }
+    }
+    .logout { margin: 0; }
+    .logout .navlink { border: 0; background: transparent; font: inherit; cursor: pointer; width: 100%; }
+    .side .logout { margin-top: auto; }
+    /* Phone top bar: the links scroll sideways when they do not fit, so Log out stays reachable. */
+    .topbar .brand { flex: none; margin-right: 8px; }
+    .topnav { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+    .topnav::-webkit-scrollbar { display: none; }
+    .topnav .navlink, .topnav .logout { flex: none; white-space: nowrap; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body{% if csrf_token %} hx-headers='{{ {"X-CSRF-Token": csrf_token} | tojson }}'{% endif %}>
+{% block body %}
+  <div class="shell">
+    <nav class="side" aria-label="Main">
+      <div class="brand">Animus</div>
+      <a class="navlink" href="/" {% if page == 'write' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 13.5l.7-3L10.8 3a1.4 1.4 0 012 2l-7.6 7.6-2.7.9z"/></svg>Write
+      </a>
+      <a class="navlink" href="/entries" {% if page == 'entries' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg>Entries
+      </a>
+      <a class="navlink" href="/reflections" {% if page == 'reflections' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 13V8.5M6.5 13V4M10.5 13V6.5M14 13H2"/></svg>Reflections
+      </a>
+      <a class="navlink" href="/memory" {% if page == 'memory' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 2.5h9v11l-4.5-3-4.5 3z"/></svg>Memory
+      </a>
+      <a class="navlink" href="/ask" {% if page == 'ask' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>Ask
+      </a>
+      <a class="navlink" href="/counselor" {% if page == 'counselor' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>Counselor
+      </a>
+      <form class="logout" method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="navlink" type="submit">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 13.5h-3v-11h3M10 5l3 3-3 3M13 8H6.5"/></svg>Log out
+        </button>
+      </form>
+    </nav>
+    <div class="frame">
+      <header class="topbar">
+        <span class="brand">Animus</span>
+        <nav class="topnav" aria-label="Main">
+          {% if page != 'write' %}<a class="navlink" href="/">Write</a>{% endif %}
+          {% if page != 'entries' %}<a class="navlink" href="/entries">Entries</a>{% endif %}
+          {% if page != 'reflections' %}<a class="navlink" href="/reflections">Reflections</a>{% endif %}
+          {% if page != 'memory' %}<a class="navlink" href="/memory">Memory</a>{% endif %}
+          {% if page != 'ask' %}<a class="navlink" href="/ask">Ask</a>{% endif %}
+          {% if page != 'counselor' %}<a class="navlink" href="/counselor">Counselor</a>{% endif %}
+          <form class="logout" method="post" action="/logout">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="navlink" type="submit">Log out</button>
+          </form>
+        </nav>
+      </header>
+      <main class="main">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+  <script nonce="{{ csp_nonce }}">
+    document.body.addEventListener('htmx:beforeSwap', function (e) {
+      if (e.detail.xhr.status === 422 || e.detail.xhr.status === 409) { e.detail.shouldSwap = true; e.detail.isError = false; }
+      if (e.detail.xhr.status === 413) {
+        e.detail.serverResponse = '<p class="msg msg-error" role="alert">That\'s too large to send.</p>';
+        e.detail.shouldSwap = true; e.detail.isError = false;
+      }
+    });
+    try {
+      var zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (zone) {
+        fetch('/timezone', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': (document.querySelector('meta[name="csrf-token"]') || {}).content || '' }, body: 'tz=' + encodeURIComponent(zone) });
+      }
+    } catch (err) {}
+  </script>
+{% endblock %}
+</body>
+</html>

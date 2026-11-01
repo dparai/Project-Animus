@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+{% block title %}Reflections · Animus{% endblock %}
+{% block content %}
+{% set c = chart %}
+<div class="page dash">
+  <header class="dash-head">
+    <h1 class="dash-title">Reflections</h1>
+    <p class="dash-date num">{{ date_line }}</p>
+  </header>
+
+  <section class="tiles" aria-label="This week">
+    <div class="tile">
+      <p class="tile-label">Entries this week</p>
+      <p class="tile-fig num">{{ stats.entries }}</p>
+    </div>
+    <div class="tile">
+      <p class="tile-label">Average energy</p>
+      {% if avg_energy %}
+      <p class="tile-fig num">{{ avg_energy }}<span class="unit"> /10</span></p>
+      {% else %}
+      <p class="tile-fig dash-fig num" aria-label="No energy logged this week">&ndash;</p>
+      {% endif %}
+    </div>
+    <div class="tile tile-moods">
+      <p class="tile-label">Mood this week</p>
+      <ul class="mood-row">
+        {% for m in moods %}
+        <li class="mood-cell{% if not m.count %} is-zero{% endif %}">
+          <span class="mood-emoji" aria-hidden="true">{{ m.emoji }}</span>
+          <span class="mood-n num">{{ m.count }}</span>
+          <span class="mood-l">{{ m.label }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+
+  <div class="dash-body">
+    <section class="panel reflect-panel" aria-label="Reflections">
+      <div class="tabs" role="tablist" aria-label="Reflection period">
+        <button type="button" role="tab" id="tab-weekly" class="tab" aria-selected="true" aria-controls="pane-weekly">Weekly</button>
+        <button type="button" role="tab" id="tab-monthly" class="tab" aria-selected="false" aria-controls="pane-monthly" tabindex="-1">Monthly</button>
+      </div>
+      {% for kind, r in (('weekly', weekly), ('monthly', monthly)) %}
+      <div class="pane" role="tabpanel" id="pane-{{ kind }}" aria-labelledby="tab-{{ kind }}"{% if kind == 'monthly' %} hidden{% endif %}>
+        <div class="pane-head">
+          <div class="status-wrap" role="status">{% with s = states[kind] %}{% include "_status.html" %}{% endwith %}</div>
+          <button type="button" class="btn-main btn-gen" hx-post="/reflections/generate?kind={{ kind }}" hx-target="#status-{{ kind }}" hx-swap="outerHTML" hx-disabled-elt="this">Generate now</button>
+        </div>
+        <div class="scroll" tabindex="0" aria-label="{{ kind | capitalize }} reflection">
+          {% include "_reflection.html" %}
+        </div>
+        <p class="foot">{% if kind == 'weekly' %}Quotes are checked against your entries. The wording around them is the AI's own.{% else %}Patterns are drawn from your weekly reflections. The wording is the AI's own.{% endif %}</p>
+      </div>
+      {% endfor %}
+    </section>
+
+    <section class="panel chart-panel" aria-labelledby="chart-h">
+      <h2 id="chart-h" class="panel-title">Your energy, last 14 days</h2>
+      <p class="hint">Daily average out of 10. Energy from imported entries is approximate.</p>
+      <div class="plot">
+        <svg class="yaxis" width="24" height="{{ chart_height }}" aria-hidden="true" focusable="false">
+          {% for tick in (10, 5, 0) %}
+          <text x="20" y="{{ baseline - tick * (plot_height / 10) + 4 }}" text-anchor="end">{{ tick }}</text>
+          {% endfor %}
+        </svg>
+        <svg class="bars" width="100%" height="{{ chart_height }}" role="img" aria-labelledby="chart-t chart-d" focusable="false">
+          <title id="chart-t">Daily average energy, {{ c.range }}</title>
+          <desc id="chart-d">{{ c.summary }}</desc>
+          {% for tick in (10, 5) %}
+          <line class="grid" x1="0" x2="100%" y1="{{ baseline - tick * (plot_height / 10) }}" y2="{{ baseline - tick * (plot_height / 10) }}"/>
+          {% endfor %}
+          <line class="base" x1="0" x2="100%" y1="{{ baseline }}" y2="{{ baseline }}"/>
+          {% for b in c.bars %}
+          <g data-day="{{ b.day }}"{% if b.value is none %} class="gap"{% endif %}>
+            {% if b.value is none %}
+            <title>{{ b.long }}: no energy logged</title>
+            {% else %}
+            <title>{{ b.long }}: energy {{ b.value }}</title>
+            <rect class="bar" x="{{ b.x }}%" width="{{ b.w }}%" y="{{ b.y }}" height="{{ b.h }}"/>
+            {% endif %}
+            {% if b.label %}<text class="xl{% if b.is_today %} today{% endif %}" x="{{ b.cx }}%" y="{{ chart_height - 4 }}" text-anchor="middle">{{ b.number }}</text>{% endif %}
+          </g>
+          {% endfor %}
+        </svg>
+      </div>
+      {% if c.empty %}<p class="hint chart-empty">No energy logged in these 14 days.</p>{% endif %}
+      <div class="visually-hidden"><table>
+        <caption>Daily average energy, {{ c.range }}</caption>
+        <thead><tr><th scope="col">Day</th><th scope="col">Average energy</th></tr></thead>
+        <tbody>
+          {% for b in c.bars %}<tr><th scope="row">{{ b.long }}</th><td>{{ b.value if b.value is not none else 'No energy logged' }}</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="panel focus-panel" aria-labelledby="focus-h">
+      <h2 id="focus-h" class="panel-title">Focus areas</h2>
+      <div class="scroll" tabindex="0" aria-label="Focus areas list">
+        {% include "_focus_list.html" %}
+      </div>
+    </section>
+  </div>
+</div>
+
+<style>
+  .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .visually-hidden td, .visually-hidden th[scope="col"]:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--control) transparent; }
+  .scroll { display: flex; flex-direction: column; }
+  .scroll > * { flex: 1 0 auto; }
+  .scroll:focus-visible { border-radius: 12px; }
+  #focus { display: flex; flex-direction: column; }
+  #focus .empty { flex: 1 1 auto; }
+
+  .dash { gap: var(--gap); }
+  .dash-head { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 16px; }
+  .dash-title { font-family: var(--font-serif); font-weight: 400; font-size: 26px; line-height: 30px; margin: 0; }
+  .dash-date { color: var(--muted); font-size: 13px; line-height: 18px; margin: 0; }
+
+  /* Stat tiles: peer metrics, one gap, label over figure */
+  .tiles { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+  .tile { background: var(--surface); border-radius: var(--radius-card); padding: 12px 16px; min-width: 0; }
+  .tile-label { margin: 0; color: var(--muted); font-size: var(--fs-small); line-height: 16px; }
+  .tile-fig { margin: 4px 0 0; font-size: var(--fs-kpi); line-height: 28px; font-weight: 500; }
+  .tile-fig .unit { color: var(--muted); font-size: var(--fs-body); font-weight: 400; }
+  .tile-fig.dash-fig { color: var(--faint); font-weight: 400; }
+  .tile-moods { grid-column: 1 / -1; }
+  .mood-row { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .mood-cell { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "e n" "l l"; align-items: center; column-gap: 6px; min-width: 0; }
+  .mood-emoji { grid-area: e; font-size: 18px; line-height: 28px; }
+  .mood-n { grid-area: n; font-size: 18px; line-height: 28px; font-weight: 500; }
+  .mood-l { grid-area: l; color: var(--muted); font-size: var(--fs-small); line-height: 16px; }
+  .mood-cell.is-zero .mood-n, .mood-cell.is-zero .mood-emoji { opacity: .55; }
+
+  /* Body: phone stacks in reading order and the main area scrolls; wider screens fill one screen */
+  .dash-body { display: grid; gap: var(--gap); grid-template-columns: minmax(0, 1fr); }
+  .panel { min-width: 0; }
+  .panel-title { font-size: var(--fs-section); line-height: 22px; }
+  .chart-panel .hint { margin-top: 2px; }
+  .plot { display: flex; margin-top: 8px; }
+  .plot .yaxis { flex: none; }
+  .plot .bars { flex: 1 1 auto; min-width: 0; display: block; }
+  svg text { font-family: var(--font); font-size: 12px; fill: var(--faint); }
+  svg .xl.today { fill: var(--text); font-weight: 600; }
+  svg .grid { stroke: var(--raised); stroke-width: 1; }
+  svg .base { stroke: var(--control); stroke-width: 1; }
+  svg .bar { fill: var(--chart-1); }
+  .chart-empty { margin-top: 4px; }
+
+  .tabs { flex: none; display: flex; gap: 20px; border-bottom: 1px solid var(--border); /* taste-skill-ignore: sheet's underline-tab rule */ }
+  .tab { position: relative; min-height: 44px; padding: 0; border: 0; background: transparent; color: #bbbbbb; font: inherit; font-weight: 500; cursor: pointer; transition: color 160ms ease; }
+  .tab:hover { color: var(--text); }
+  .tab[aria-selected="true"] { color: var(--text); }
+  .tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--text); }
+  .pane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+  .pane[hidden] { display: none; }
+  .pane-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; }
+  .status-wrap { min-width: 0; }
+  .status-text { margin: 0; color: var(--text); }
+  .status-hint { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-small); line-height: 16px; }
+  .tone-neutral .status-text { color: var(--muted); }
+  .tone-warn .status-text { color: var(--pill-warning-ink); }
+  .tone-bad .status-text { color: var(--pill-negative-ink); }
+  .btn-gen { flex: none; padding: 0 20px; }
+  .pane .scroll { flex: 1 1 auto; }
+  .foot { flex: none; margin: 10px 0 0; color: var(--faint); font-size: var(--fs-small); line-height: 16px; }
+
+  .reflection { display: grid; align-content: start; gap: 16px; padding-right: 4px; }
+  .r-head { display: grid; gap: 2px; }
+  .r-title { margin: 0; font-size: var(--fs-section); line-height: 22px; font-weight: 600; }
+  .r-meta { margin: 0; color: var(--muted); font-size: 13px; line-height: 18px; }
+  .note { margin: 0; color: var(--muted); background: var(--raised); border-radius: 12px; padding: 8px 12px; }
+  .r-sec { display: grid; gap: 8px; }
+  .r-sec-title { margin: 0; font-size: var(--fs-body); line-height: 20px; font-weight: 600; }
+  .claims, .plain-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+  .plain-list { gap: 6px; }
+  .claim-text { margin: 0; overflow-wrap: anywhere; }
+  .claim-meta { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 18px; }
+  .quote { margin: 8px 0 0; padding: 8px 12px; background: var(--raised); border-radius: 12px; }
+  .quote blockquote { margin: 0; }
+  .quote p { margin: 0; color: var(--muted); font-size: 13px; line-height: 20px; overflow-wrap: anywhere; white-space: pre-line; }
+  .quote figcaption { margin-top: 2px; color: var(--faint); font-size: var(--fs-small); line-height: 16px; }
+  .claim-actions { margin-top: 2px; }
+  .claim-btn { min-height: 44px; margin-left: -12px; padding: 0 12px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); font: inherit; font-size: 13px; text-decoration: underline; text-decoration-color: var(--control); text-underline-offset: 3px; cursor: pointer; transition: color 160ms ease, background 160ms ease; }
+  .claim-btn:hover { color: var(--text); background: var(--raised); }
+  .claim-btn[hidden] { display: none; }
+  .claim-btn.htmx-request { opacity: .6; cursor: progress; }
+  .corr-form { display: grid; gap: 8px; margin-top: 10px; }
+  .corr-label { font-size: 14px; font-weight: 600; }
+  .corr-text { min-height: 84px; resize: vertical; }
+  .corr-count-row { display: flex; justify-content: flex-end; margin-top: -4px; }
+  .corr-actions { display: flex; gap: 8px; }
+  .corr-actions .btn-main { padding: 0 24px; }
+  .btn-quiet { min-height: 44px; padding: 0 20px; border: 1px solid var(--control); /* taste-skill-ignore: outlined secondary button per sheet */ border-radius: var(--radius-control); background: transparent; color: var(--text); font: inherit; cursor: pointer; transition: background 160ms ease; }
+  .btn-quiet:hover { background: var(--raised); }
+  .corr-done { margin: 4px 0 0; }
+  .corr-done:focus-visible { outline-offset: 2px; }
+  .empty { display: grid; align-content: center; justify-items: center; text-align: center; gap: 4px; min-height: 96px; padding: 16px; border: 1px dashed var(--control); /* taste-skill-ignore: dashed empty slot (app-screens 11) */ border-radius: 16px; }
+  .empty-title { margin: 0; font-weight: 600; }
+  .empty-text { margin: 0; color: var(--muted); }
+  .plain-list li { overflow-wrap: anywhere; }
+
+  .focus-panel { display: flex; flex-direction: column; min-height: 0; }
+  .focus-panel .scroll { flex: 1 1 auto; margin-top: 4px; }
+  .focus-count { flex: none; margin: 0 0 4px; }
+  .focus-items { flex: none; }
+  .focus-items { list-style: none; margin: 0; padding: 0; }
+  .focus-btn { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-height: 44px; padding: 10px 8px; margin: 0; border: 0; border-radius: 12px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background 160ms ease; }
+  .focus-btn:hover { background: var(--raised); }
+  .focus-btn:disabled { opacity: .6; cursor: progress; }
+  .box { flex: none; width: 20px; height: 20px; margin-top: 0; box-sizing: border-box; border: 1.5px solid var(--faint); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; }
+  .box svg { width: 14px; height: 14px; fill: none; stroke: var(--ground); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .is-done .box { background: var(--text); border-color: var(--text); }
+  .focus-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+  .focus-text { overflow-wrap: anywhere; }
+  .is-done .focus-text { color: var(--muted); }
+  .focus-meta { color: var(--faint); font-size: var(--fs-small); }
+  .pill { display: inline-flex; align-items: center; min-height: 20px; padding: 0 10px; border-radius: 999px; font-size: var(--fs-small); line-height: 16px; }
+  .pill-warning { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+
+  @media (min-width: 768px) {
+    .dash { flex: 1 1 0; min-height: 0; max-width: 1120px; }
+    .dash-body { flex: 1 1 0; min-height: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: minmax(260px, 1fr) 260px; grid-template-areas: "reflect reflect" "chart focus"; }
+    .reflect-panel { grid-area: reflect; }
+    .chart-panel { grid-area: chart; overflow: hidden; }
+    .focus-panel { grid-area: focus; }
+    .reflect-panel { display: flex; flex-direction: column; min-height: 0; }
+    .tab { min-height: 40px; }
+  }
+  @media (min-width: 1024px) {
+    .tiles { grid-template-columns: 1fr 1fr 2fr; }
+    .tile-moods { grid-column: auto; }
+    .dash-body { grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "reflect chart" "reflect focus"; }
+    .reflect-panel { grid-area: reflect; }
+    .chart-panel { grid-area: chart; }
+    .focus-panel { grid-area: focus; }
+  }
+  @media (max-width: 767px) {
+    .pane .scroll { overflow: visible; }
+    .scroll[aria-label="Focus areas list"] { overflow: visible; }
+  }
+  @media (prefers-reduced-motion: reduce) { .tab, .focus-btn, .claim-btn, .btn-quiet { transition: none; } }
+</style>
+<script nonce="{{ csp_nonce }}">
+  // Keep keyboard focus on the same focus area after its list is swapped.
+  (function () {
+    var pending = null;
+    document.body.addEventListener('htmx:beforeRequest', function (e) {
+      var item = e.detail.elt && e.detail.elt.closest ? e.detail.elt.closest('[data-focus-id]') : null;
+      pending = item ? item.getAttribute('data-focus-id') : null;
+    });
+    document.body.addEventListener('htmx:afterSettle', function () {
+      if (!pending) { return; }
+      var btn = document.querySelector('[data-focus-id="' + pending + '"] .focus-btn');
+      pending = null;
+      if (btn) { btn.focus(); }
+    });
+  })();
+  // Correction form: focus the textarea when it opens, restore the slot on Cancel, focus the confirmation.
+  (function () {
+    function parts(node) {
+      var wrap = node.closest ? node.closest('.claim-actions') : null;
+      return wrap ? { slot: wrap.querySelector('.corr-slot'), btn: wrap.querySelector('.claim-btn') } : null;
+    }
+    function count(ta) {
+      var out = ta.form ? ta.form.querySelector('[data-corr-count]') : null;
+      if (out) { out.textContent = ta.value.length + '/' + out.getAttribute('data-max'); }
+    }
+    function cancel(from) {
+      var p = parts(from);
+      if (!p) { return; }
+      p.slot.innerHTML = '';
+      p.btn.hidden = false;
+      p.btn.setAttribute('aria-expanded', 'false');
+      p.btn.focus();
+    }
+    document.body.addEventListener('click', function (e) {
+      var c = e.target.closest ? e.target.closest('[data-corr-cancel]') : null;
+      if (c) { cancel(c); }
+    });
+    document.body.addEventListener('input', function (e) {
+      if (e.target.matches && e.target.matches('[data-corr-text]')) { count(e.target); }
+    });
+    document.body.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && e.target.matches && e.target.matches('[data-corr-text]')) { cancel(e.target); }
+    });
+    document.body.addEventListener('htmx:afterSettle', function (e) {
+      var t = e.detail.target;
+      if (!t || !t.classList || !t.classList.contains('corr-slot')) { return; }
+      var p = parts(t);
+      var ta = t.querySelector('[data-corr-text]');
+      var done = t.querySelector('[data-corr-done]');
+      if (ta) { p.btn.hidden = true; p.btn.setAttribute('aria-expanded', 'true'); count(ta); ta.focus(); }
+      else if (done) { p.btn.hidden = true; done.focus(); }
+    });
+  })();
+  (function () {
+    var tabs = [].slice.call(document.querySelectorAll('[role="tab"]'));
+    if (!tabs.length) { return; }
+    function select(tab, focus) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+      try { sessionStorage.setItem('animus-reflect-tab', tab.id); } catch (err) {}
+      if (focus) { tab.focus(); }
+    }
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { select(tab, false); });
+      tab.addEventListener('keydown', function (e) {
+        var j = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null;
+        if (j === null) { return; }
+        e.preventDefault();
+        select(tabs[(j + tabs.length) % tabs.length], true);
+      });
+    });
+    try {
+      var saved = document.getElementById(sessionStorage.getItem('animus-reflect-tab') || '');
+      if (saved && tabs.indexOf(saved) > -1) { select(saved, false); }
+    } catch (err) {}
+  })();
+</script>
+{% endblock %}

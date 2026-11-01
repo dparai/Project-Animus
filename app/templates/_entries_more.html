@@ -1,0 +1,6 @@
+{% for e in rows %}{% include "_entry_row.html" %}{% endfor %}
+{% if next_cursor %}
+<li class="more"><a class="btn-older" href="/entries?before={{ next_cursor|urlencode }}" hx-get="/entries?before={{ next_cursor|urlencode }}" hx-target="closest li" hx-swap="outerHTML">Older entries</a></li>
+{% elif rows %}
+<li id="end" class="more end">That is every entry.</li>
+{% endif %}

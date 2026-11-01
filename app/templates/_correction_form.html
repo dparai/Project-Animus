@@ -1,0 +1,18 @@
+{% if done %}
+<p class="msg msg-saved corr-done" role="status" tabindex="-1" data-corr-done>Noted. I will remember this.</p>
+{% else %}
+{% set key = rid ~ '-' ~ cid %}
+<form class="corr-form" method="post" action="/reflections/{{ rid }}/claims/{{ cid | urlencode }}/correct" hx-post="/reflections/{{ rid }}/claims/{{ cid | urlencode }}/correct" hx-target="#corr-{{ key }}" hx-swap="innerHTML" hx-disabled-elt="find .btn-main">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label class="corr-label" for="note-{{ key }}">What did you mean? (optional)</label>
+  <textarea id="note-{{ key }}" name="note" class="field-text corr-text" rows="3" maxlength="{{ note_max }}" aria-describedby="note-count-{{ key }}{% if message %} note-err-{{ key }}{% endif %}"{% if message %} aria-invalid="true"{% endif %} data-corr-text>{{ note }}</textarea>
+  <div class="corr-count-row">
+    <span id="note-count-{{ key }}" class="hint num" data-corr-count data-max="{{ note_max }}">{{ note | length }}/{{ note_max }}</span>
+  </div>
+  {% if message %}<p id="note-err-{{ key }}" class="msg msg-error" role="alert">{{ message }}</p>{% endif %}
+  <div class="corr-actions">
+    <button type="submit" class="btn-main">Save</button>
+    <button type="button" class="btn-quiet" data-corr-cancel>Cancel</button>
+  </div>
+</form>
+{% endif %}

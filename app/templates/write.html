@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Write · Animus{% endblock %}
+{% block content %}
+<div class="page write">
+  <header class="write-head">
+    <h1 class="greeting">{{ greeting }}</h1>
+    <p class="write-date num"><span>{{ date_line }}</span> · <time id="clock">{{ clock }}</time></p>
+  </header>
+
+  <form id="entry-form" class="write-form" method="post" action="/entries" hx-post="/entries" hx-target="#result" hx-disabled-elt="#save" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <section class="panel checkin" aria-label="Check-in">
+      <fieldset class="mood-set">
+        <legend class="panel-title">How are you feeling? <span class="hint">Optional</span></legend>
+        <div class="moods">
+          {% for m in moods %}
+          <div>
+            <input type="radio" name="mood" id="mood-{{ m.key }}" value="{{ m.key }}" class="peer sr-only">
+            <label for="mood-{{ m.key }}" class="mood-label"><span class="e" aria-hidden="true">{{ m.emoji }}</span><span class="t">{{ m.label }}</span></label>
+          </div>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <div class="energy">
+        <label for="energy" class="panel-title">Energy</label>
+        <span class="ends" aria-hidden="true">drained</span>
+        <input type="range" id="energy" min="1" max="10" step="1" value="5" class="untouched" aria-valuetext="Not set" aria-describedby="energy-ends">
+        <span class="ends" aria-hidden="true">wired</span>
+        <span id="energy-value" class="energy-value num" aria-hidden="true">Not set</span>
+        <span id="energy-ends" class="sr-only">1 is drained, 10 is wired.</span>
+      </div>
+    </section>
+
+    <div class="entry-box">
+      <label for="text" class="panel-title">What is on your mind?</label>
+      {% include "_textarea.html" %}
+    </div>
+
+    <div class="actions">
+      <div id="result" class="result" aria-live="polite"></div>
+      <button id="save" type="submit" class="btn-save">Save</button>
+    </div>
+  </form>
+</div>
+
+<style>
+  .write { gap: 12px; }
+  .write-head { flex: none; display: flex; flex-direction: column; gap: 2px; }
+  .greeting { font-family: var(--font-serif); font-weight: 400; font-size: 26px; line-height: 30px; margin: 0; }
+  .write-date { color: var(--muted); font-size: 13px; line-height: 18px; margin: 0; }
+  .write-form { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .checkin { flex: none; padding: 12px; }
+  .mood-set { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .mood-set legend { padding: 0; margin-bottom: 8px; }
+  .mood-set .hint { margin-left: 6px; font-weight: 400; }
+  .energy { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px; margin-top: 6px; }
+  .energy .ends { display: none; }
+  .energy-value { grid-column: 3; grid-row: 1; }
+  .energy input[type=range] { grid-column: 2; grid-row: 1; }
+  .entry-box { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+  .entry-box .field-text { flex: 1 1 0; min-height: 110px; background: var(--surface); border-radius: var(--radius-card); padding: 16px 18px; }
+  .actions { flex: none; display: flex; flex-direction: column; gap: 6px; padding-bottom: 0; }
+  .result { min-height: 24px; display: flex; align-items: center; }
+  .actions .btn-save { width: 100%; }
+  @media (min-width: 640px) {
+    .write { gap: 16px; }
+    .write-head { flex-direction: row; align-items: baseline; justify-content: space-between; }
+    .greeting { font-size: 32px; line-height: 38px; }
+    .write-date { font-size: 14px; line-height: 20px; }
+    .checkin { padding: 14px 16px; }
+    .energy .ends { display: block; color: var(--muted); font-size: var(--fs-small); }
+    .energy { grid-template-columns: auto auto minmax(0, 1fr) auto auto; }
+    .energy .ends:nth-of-type(1) { grid-column: 2; }
+    .energy input[type=range] { grid-column: 3; }
+    .energy .ends:nth-of-type(2) { grid-column: 4; }
+    .energy-value { grid-column: 5; }
+    .actions { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; }
+    .actions .btn-save { width: auto; min-width: 160px; padding: 0 28px; }
+  }
+</style>
+<script nonce="{{ csp_nonce }}">
+  (function () {
+    var slider = document.getElementById('energy');
+    var value = document.getElementById('energy-value');
+    var form = document.getElementById('entry-form');
+    // Energy is optional: the slider only submits once the person has touched it.
+    // 'input' alone misses a tap or key press that lands on the starting 5, so listen to more.
+    function markSet() {
+      slider.name = 'energy';
+      slider.classList.remove('untouched');
+      value.textContent = slider.value + ' of 10';
+      value.classList.add('set');
+      slider.setAttribute('aria-valuetext', slider.value + ' of 10');
+    }
+    ['input', 'change', 'pointerdown', 'pointerup'].forEach(function (name) {
+      slider.addEventListener(name, markSet);
+    });
+    slider.addEventListener('keydown', function (e) {
+      // Only keys that choose a value (not Tab) count as setting the slider.
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].indexOf(e.key) !== -1) { markSet(); }
+    });
+    form.addEventListener('htmx:afterRequest', function (e) {
+      if (e.detail.xhr.status === 200) {
+        slider.removeAttribute('name');
+        slider.value = 5;
+        slider.classList.add('untouched');
+        value.textContent = 'Not set';
+        value.classList.remove('set');
+        slider.setAttribute('aria-valuetext', 'Not set');
+        form.querySelectorAll('input[name=mood]').forEach(function (r) { r.checked = false; });
+      }
+    });
+    // Live clock in the browser's own time zone.
+    var clock = document.getElementById('clock');
+    function tick() {
+      var d = new Date();
+      clock.textContent = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+    tick();
+    setInterval(tick, 15000);
+  })();
+</script>
+{% endblock %}

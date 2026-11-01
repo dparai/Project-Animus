@@ -1,0 +1,26 @@
+<ol id="chat-list" class="chat-msgs">
+  {% for m in msgs %}
+  <li class="chat-msg {{ 'is-owner' if m.role == 'user' else 'is-counselor' }}" data-role="{{ m.role }}">
+    <p class="chat-who">{{ 'You' if m.role == 'user' else 'Counselor' }}</p>
+    <p class="chat-text">{{ m.text }}</p>
+    {% if m.cites %}
+    <p class="chat-cites"><span class="chat-cites-label">From your journal:</span>
+      {% for c in m.cites %}<a class="chat-cite num" href="/entries/{{ c.id }}">{{ c.when }}</a>{% endfor %}
+    </p>
+    {% endif %}
+  </li>
+  {% else %}
+  <li class="chat-hint">Say what is on your mind. The Counselor asks questions and listens; it does not give advice unless you ask.</li>
+  {% endfor %}
+</ol>
+{% if notice %}
+<div class="chat-notice{{ ' is-error' if notice.kind == 'error' else '' }}" data-state="{{ notice.kind }}">
+  <p class="chat-notice-text">{{ notice.text }}</p>
+  {% if pending %}
+  <button class="btn-quiet chat-retry" type="button" hx-post="/counselor/{{ conv_id }}/retry" hx-target="#chat-thread" hx-swap="innerHTML" hx-disabled-elt="this" hx-indicator="#chat-state">Try again</button>
+  {% endif %}
+</div>
+{% endif %}
+{% if ended %}
+<p class="chat-ended">This conversation has ended. It is kept here to read.</p>
+{% endif %}

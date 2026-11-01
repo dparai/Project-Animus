@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Animus database backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=animus-backup.service
+
+[Install]
+WantedBy=timers.target

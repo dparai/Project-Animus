@@ -1,0 +1,38 @@
+[Unit]
+Description=Animus database backup
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=animus
+WorkingDirectory=/opt/animus
+Environment=ANIMUS_DB_PATH=/opt/animus/data/vault.db
+Environment=ANIMUS_BACKUP_DIR=/opt/animus/backups
+ExecStart=/opt/animus/.venv/bin/python -m scripts.backup
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=256M
+CPUQuota=50%
+NoNewPrivileges=yes
+ProtectSystem=strict
+# data/ is writable only so SQLite can open the live WAL database (it needs the -shm file); the
+# script only reads it. backups/ must exist (mode 700) before the first run.
+ReadWritePaths=/opt/animus/backups /opt/animus/data
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native

@@ -1,0 +1,15 @@
+vault.db
+*.db
+*.sqlite*
+.env
+__pycache__/
+private-data/
+.superpowers/
+backups/
+.venv/
+.cache/
+*.db-wal
+*.db-shm
+*.db-journal
+vault.db-*
+data/

@@ -1,0 +1,4 @@
+<div id="status-{{ kind }}" class="status tone-{{ s.tone }}"{% if s.poll %} hx-get="/reflections/status?kind={{ kind }}&amp;n={{ (n or 0) + 1 }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <p class="status-text">{{ s.text }}</p>
+  {% if s.hint %}<p class="status-hint">{{ s.hint }}</p>{% endif %}
+</div>
