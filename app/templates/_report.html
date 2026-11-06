@@ -1,0 +1,171 @@
+{% from "_corr.html" import correction_slot %}
+{% if not r %}
+<p class="empty-text">This report could not be found.</p>
+{% elif not r.v2 %}
+{% include "_reflection.html" %}
+{% include "_ribbon.html" %}
+{% else %}
+{% set v = r.v2 %}
+<article class="reflection rv2" data-reflection-id="{{ r.id }}">
+  <header class="r-head">
+    <h2 class="r-title">{{ r.title }}</h2>
+    <p class="r-meta num">{% if r.range %}{{ r.range }}. {% endif %}{% if r.entry_count is not none %}Based on {{ r.entry_count }} {{ 'entry' if r.entry_count == 1 else 'entries' }}. {% endif %}Generated {{ r.generated }}.</p>
+  </header>
+  {% if r.short %}<p class="note">Only a little to go on, so this is a shorter reflection.</p>{% endif %}
+  {% if r.unverified %}<p class="note">Some points could not be checked against your entries, so they are not shown.</p>{% endif %}
+
+  {% if v.summary %}
+  <section class="r-sec" aria-labelledby="h-sum-{{ r.id }}">
+    <h3 id="h-sum-{{ r.id }}" class="r-sec-title">Summary</h3>
+    <ol class="sum-list">{% for line in v.summary %}<li>{{ line }}</li>{% endfor %}</ol>
+  </section>
+  {% endif %}
+
+  <section class="r-sec" aria-labelledby="h-feel-{{ r.id }}">
+    <h3 id="h-feel-{{ r.id }}" class="r-sec-title">How you felt</h3>
+    {% if v.overall_feel %}<p class="claim-text">{{ v.overall_feel }}</p>{% endif %}
+    {% if v.bars %}
+    <svg class="mood-bars" viewBox="0 0 {{ v.bars | length * 16 + 4 }} 62" role="img" aria-label="Energy by day, taller is higher">
+      {% for b in v.bars %}
+      <rect class="{{ 'b-on' if b.has else 'b-off' }}" x="{{ loop.index0 * 16 + 4 }}" y="{{ 50 - b.h }}" width="12" height="{{ b.h }}" rx="3"><title>{{ b.title }}</title></rect>
+      {% if b.label %}<text class="b-l" x="{{ loop.index0 * 16 + 10 }}" y="60" text-anchor="middle">{{ b.label }}</text>{% endif %}
+      {% endfor %}
+    </svg>
+    {% endif %}
+  </section>
+
+  {% if r.kind == 'weekly' %}
+  {% for section, title, claims in (('wins', 'What went well', r.wins), ('tough', 'What could be better', r.tough_love)) %}
+  <section class="r-sec" aria-labelledby="h-{{ section }}-{{ r.id }}">
+    <h3 id="h-{{ section }}-{{ r.id }}" class="r-sec-title">{{ title }}</h3>
+    {% if claims %}
+    <ul class="claims">
+      {% for c in claims %}
+      <li class="claim" id="claim-{{ c.id }}" data-claim-id="{{ c.id }}" data-reflection-id="{{ r.id }}">
+        <p class="claim-text" id="text-{{ r.id }}-{{ c.id }}">{{ c.text }}</p>
+        <figure class="quote">
+          <blockquote><p>&ldquo;{{ c.quote }}&rdquo;</p></blockquote>
+          {% if c.when %}<figcaption class="num">Your words, {{ c.when }}</figcaption>{% endif %}
+        </figure>
+        {{ correction_slot(r.id, c.id) }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-text">Nothing to show here this week.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+  {% endif %}
+
+  {% if r.kind == 'weekly' and v.patterns %}
+  <section class="r-sec" aria-labelledby="h-pat-{{ r.id }}">
+    <h3 id="h-pat-{{ r.id }}" class="r-sec-title">Patterns found ({{ v.patterns | length }})</h3>
+    <ul class="pat-list">
+      {% for p in v.patterns %}
+      <li class="pat"><span class="tag tag-{{ p.kind }}">{{ p.label }}</span><span class="pat-text">{{ p.text }}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% elif r.kind == 'monthly' %}
+  <section class="r-sec" aria-labelledby="h-pat-{{ r.id }}">
+    <h3 id="h-pat-{{ r.id }}" class="r-sec-title">Patterns found ({{ r.patterns | length }})</h3>
+    {% if r.patterns %}
+    <ul class="claims">
+      {% for p in r.patterns %}
+      <li class="claim" id="pattern-{{ p.id }}" data-pattern-id="{{ p.id }}" data-reflection-id="{{ r.id }}">
+        <p class="claim-text" id="text-{{ r.id }}-{{ p.id }}"><span class="tag tag-{{ p.kind }}">{{ p.label }}</span> {{ p.text }}</p>
+        {% if p.weeks %}<p class="claim-meta num">Seen in the weeks of {{ p.weeks | join(', ') }}</p>{% endif %}
+        {{ correction_slot(r.id, p.id) }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-text">No patterns this month.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if v.triggers %}
+  <section class="r-sec" aria-labelledby="h-trig-{{ r.id }}">
+    <h3 id="h-trig-{{ r.id }}" class="r-sec-title">Triggers and responses</h3>
+    <ul class="trig-list">
+      {% for t in v.triggers %}
+      <li class="trig">
+        <div class="chain">
+          <span class="chip chip-event">{{ t.trigger }}</span><span class="arrow" aria-hidden="true">&rarr;</span>
+          {% if t.felt %}<span class="chip chip-felt">{{ t.felt }}</span><span class="arrow" aria-hidden="true">&rarr;</span>{% endif %}
+          {% if t.did %}<span class="chip chip-did">{{ t.did }}</span><span class="arrow" aria-hidden="true">&rarr;</span>{% endif %}
+          <span class="chip chip-{{ t.outcome }}">{{ {'helped': 'Helped', 'worse': 'Made it worse', 'neutral': 'No change'}[t.outcome] }}{% if t.count and t.count > 1 %} &middot; {{ t.count }} times{% endif %}</span>
+        </div>
+        {% if t.quote %}<figure class="quote"><blockquote><p>&ldquo;{{ t.quote }}&rdquo;</p></blockquote>{% if t.when %}<figcaption class="num">Your words, {{ t.when }}</figcaption>{% endif %}</figure>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if v.takeaway %}<p class="claim-text"><strong>What this tells you:</strong> {{ v.takeaway }}</p>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if v.worries %}
+  <section class="r-sec" aria-labelledby="h-wor-{{ r.id }}">
+    <h3 id="h-wor-{{ r.id }}" class="r-sec-title">Recurring worries and whether they came true</h3>
+    <ul class="wor-list">
+      {% for w in v.worries %}
+      <li class="wor">
+        <span class="wor-name">{{ w.worry }}</span>
+        <span class="wor-meta num">{{ w.times }} {{ 'time' if w.times == 1 else 'times' }}</span>
+        <span class="chip chip-true-{{ w.came_true }}">{{ {'yes': 'Came true', 'no': 'Did not come true', 'unclear': 'Unclear'}[w.came_true] }}</span>
+        {% if w.note %}<span class="wor-note">{{ w.note }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if r.kind == 'monthly' and v.recap %}
+  <section class="r-sec" aria-labelledby="h-rec-{{ r.id }}">
+    <h3 id="h-rec-{{ r.id }}" class="r-sec-title">Week by week</h3>
+    <ul class="plain-list">{% for w in v.recap %}<li><span class="num">{{ w.label }}:</span> {{ w.text }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
+  {% if r.kind == 'monthly' and v.focus_progress %}
+  <section class="r-sec" aria-labelledby="h-fp-{{ r.id }}">
+    <h3 id="h-fp-{{ r.id }}" class="r-sec-title">Progress on your focus areas</h3>
+    <p class="claim-text">{{ v.focus_progress }}</p>
+  </section>
+  {% endif %}
+
+  {% if r.kind == 'monthly' and v.hidden_wins %}
+  <section class="r-sec" aria-labelledby="h-hw-{{ r.id }}">
+    <h3 id="h-hw-{{ r.id }}" class="r-sec-title">Wins you may have missed</h3>
+    <ul class="plain-list">{% for w in v.hidden_wins %}<li>{{ w }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
+  {% if v.improve %}
+  <section class="r-sec" aria-labelledby="h-imp-{{ r.id }}">
+    <h3 id="h-imp-{{ r.id }}" class="r-sec-title">How you can improve</h3>
+    <ol class="imp-list">{% for i in v.improve %}<li><span class="imp-step">{{ i.step }}</span>{% if i.why %} <span class="imp-why">{{ i.why }}</span>{% endif %}</li>{% endfor %}</ol>
+  </section>
+  {% endif %}
+
+  {% set nxt = r.focus if r.kind == 'weekly' else r.focus_next %}
+  {% if nxt %}
+  <section class="r-sec" aria-labelledby="h-next-{{ r.id }}">
+    <h3 id="h-next-{{ r.id }}" class="r-sec-title">What to try next</h3>
+    <ul class="plain-list">{% for f in nxt %}<li>{{ f }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
+  {% if v.questions %}
+  <section class="r-sec" aria-labelledby="h-q-{{ r.id }}">
+    <h3 id="h-q-{{ r.id }}" class="r-sec-title">Questions to think about</h3>
+    <ul class="plain-list">{% for q in v.questions %}<li>{{ q }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
+  {% include "_ribbon.html" %}
+  <p class="foot">Reflective support, not medical therapy. Quotes are checked against your entries; the wording around them is the AI's own.</p>
+</article>
+{% endif %}

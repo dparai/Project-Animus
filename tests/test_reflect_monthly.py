@@ -87,7 +87,7 @@ def test_unknown_week_keys_dropped(conn, october):
     ]
     rid = reflect.generate_monthly(conn, FakeLLM([out]), OCT, NOW)
     c = stored(conn, rid)
-    assert c["patterns"] == [{"id": "p1", "text": "Mixed.", "weeks": ["2026-W41"]}]
+    assert c["patterns"] == [{"id": "p1", "text": "Mixed.", "weeks": ["2026-W41"], "label": "Mixed.", "kind": "link"}]
     assert c["dropped"] == ["p2"]
     assert c["weeks_used"] == october
 
@@ -109,7 +109,9 @@ def test_monthly_saved_with_period_key_yyyy_mm(conn, october):
     assert (row["kind"], row["period_key"], row["version"]) == ("monthly", "2026-10", 1)
     assert (row["period_start"], row["period_end"]) == ("2026-10-01", "2026-10-31")
     c = stored(conn, rid)
-    assert set(c) == {"summary", "patterns", "focus_next", "weeks_used", "short", "dropped", "unverified"}
+    assert set(c) == {"summary", "patterns", "focus_next", "weeks_used", "short", "dropped", "unverified",
+                      "v", "summary_lines", "triggers", "worries", "recap", "focus_progress", "hidden_wins",
+                      "improve", "questions", "by_day"}
     assert c["short"] is False and c["unverified"] is False
     assert c["focus_next"] == [{"text": "Fix a gym time."}]
 
@@ -166,7 +168,7 @@ def test_hostile_weekly_text_is_escaped_in_prompt(conn):
 @pytest.mark.parametrize("raw", [
     {"summary": 5, "patterns": "lots", "focus_next": {"a": 1}},
     {"patterns": [{"id": "p1", "text": "x", "weeks": {"2026-W41": 1}}, "junk", None, 3]},
-    {"summary": ["a"], "patterns": [{"text": 7, "weeks": ["2026-W41"]}], "focus_next": ["x", {"text": 4}]},
+    {"summary": [5, {}], "patterns": [{"text": 7, "weeks": ["2026-W41"]}], "focus_next": ["x", {"text": 4}]},
     {},
 ])
 def test_malformed_model_output_no_crash(conn, october, raw):
@@ -179,12 +181,12 @@ def test_malformed_model_output_no_crash(conn, october, raw):
 def test_caps_and_id_assignment(conn, october):
     out = {
         "summary": "S",
-        "patterns": [{"id": "p1", "text": f"t{i}", "weeks": ["2026-W41"]} for i in range(6)],
-        "focus_next": [{"text": f"f{i}"} for i in range(5)],
+        "patterns": [{"id": "p1", "text": f"t{i}", "weeks": ["2026-W41"]} for i in range(14)],
+        "focus_next": [{"text": f"f{i}"} for i in range(7)],
     }
     c = stored(conn, reflect.generate_monthly(conn, FakeLLM([out]), OCT, NOW))
-    assert [p["id"] for p in c["patterns"]] == ["p1", "p2", "p3", "p4"]
-    assert len(c["focus_next"]) == 3
+    assert [p["id"] for p in c["patterns"]] == [f"p{i}" for i in range(1, 13)]
+    assert len(c["focus_next"]) == 5
     assert c["unverified"] is False
 
 
@@ -193,14 +195,14 @@ def test_truncated_retries_once_with_8192_then_stops(conn, october):
     with pytest.raises(LLMError) as ei:
         reflect.generate_monthly(conn, llm, OCT, NOW)
     assert ei.value.reason == "truncated"
-    assert [c["max_tokens"] for c in llm.calls] == [4096, 8192]
+    assert [c["max_tokens"] for c in llm.calls] == [8192, 12288]
     assert reflections.latest(conn, "monthly") is None
 
 
 def test_truncated_then_success(conn, october):
     llm = FakeLLM([LLMError("cut", retryable=True, reason="truncated"), model_out()])
     assert reflect.generate_monthly(conn, llm, OCT, NOW) is not None
-    assert [c["max_tokens"] for c in llm.calls] == [4096, 8192]
+    assert [c["max_tokens"] for c in llm.calls] == [8192, 12288]
 
 
 def test_other_llm_error_propagates_unchanged(conn, october):
@@ -241,8 +243,8 @@ def test_monthly_system_prompt_rules():
     s = prompts.monthly_system()
     assert "DATA" in s and "<week" in s and "JSON" in s
     assert "whether the active focus areas moved" in s
-    assert "at most 4 things" in s and "at most 3 concrete things" in s
-    assert "return an empty patterns list rather than inventing patterns" in s
+    assert "8 to 12 things" in s and "at most 5 concrete things" in s
+    assert "return fewer patterns rather than inventing any" in s
 
 
 def test_unhashable_week_items_do_not_crash(conn, october):
@@ -250,7 +252,7 @@ def test_unhashable_week_items_do_not_crash(conn, october):
     out["patterns"] = [{"id": "p1", "text": "Odd weeks.",
                         "weeks": [["2026-W41"], {"a": 1}, 3, "2026-W41"]}]
     c = stored(conn, reflect.generate_monthly(conn, FakeLLM([out]), OCT, NOW))
-    assert c["patterns"] == [{"id": "p1", "text": "Odd weeks.", "weeks": ["2026-W41"]}]
+    assert c["patterns"] == [{"id": "p1", "text": "Odd weeks.", "weeks": ["2026-W41"], "label": "Odd weeks.", "kind": "link"}]
 
 
 def test_truncated_then_other_llm_error_propagates(conn, october):
@@ -259,4 +261,4 @@ def test_truncated_then_other_llm_error_propagates(conn, october):
     with pytest.raises(LLMError) as ei:
         reflect.generate_monthly(conn, llm, OCT, NOW)
     assert ei.value is second
-    assert [c["max_tokens"] for c in llm.calls] == [4096, 8192]
+    assert [c["max_tokens"] for c in llm.calls] == [8192, 12288]

@@ -4,6 +4,7 @@ Presentation only. Model-written text is passed through untouched and escaped by
 (autoescape on, no `|safe`). Job errors are mapped to fixed phrases: raw `last_error` values are
 never shown.
 """
+import re
 import sqlite3
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
@@ -101,7 +102,10 @@ def _patterns(content: dict, rid: int) -> list[dict]:
     for index, item in enumerate(_list(content.get("patterns"))):
         item = _dict(item)
         weeks = [day_month(d) for d in (_week_start(k) for k in _list(item.get("weeks"))) if d]
-        out.append({"id": _unique_id(item.get("id"), rid, "p", index, seen), "text": _str(item.get("text")), "weeks": weeks})
+        kind = item.get("kind")
+        out.append({"id": _unique_id(item.get("id"), rid, "p", index, seen), "text": _str(item.get("text")), "weeks": weeks,
+                    "label": _str(item.get("label")) or _str(item.get("text"))[:60],
+                    "kind": kind if kind in ("link", "risk", "strength") else "link"})
     return out
 
 
@@ -121,8 +125,10 @@ def claim_index(content: dict, reflection_id: int) -> dict[str, dict]:
 
 def weekly_view(conn: sqlite3.Connection, zone: str) -> dict | None:
     row = reflections.latest(conn, "weekly")
-    if row is None:
-        return None
+    return None if row is None else weekly_view_row(row, zone)
+
+
+def weekly_view_row(row, zone: str) -> dict:
     content = _dict(reflections.content(row))
     start, end = _iso(row["period_start"]), _iso(row["period_end"])
     wins, tough_love = _weekly_claims(content, row["id"])
@@ -140,17 +146,23 @@ def weekly_view(conn: sqlite3.Connection, zone: str) -> dict | None:
         "wins": wins,
         "tough_love": tough_love,
         "focus": [_str(_dict(f).get("text")) for f in _list(content.get("focus")) if _str(_dict(f).get("text"))],
+        "v2": _v2(content, start, end, True) if content.get("v") == 2 else None,
     }
 
 
 def monthly_view(conn: sqlite3.Connection, zone: str) -> dict | None:
     row = reflections.latest(conn, "monthly")
-    if row is None:
-        return None
+    return None if row is None else monthly_view_row(row, zone)
+
+
+def monthly_view_row(row, zone: str) -> dict:
     content = _dict(reflections.content(row))
     start = _iso(row["period_start"])
+    end = _iso(row["period_end"])
     return {
         "kind": "monthly",
+        "range": f"{day_month(start)} to {day_month(end)}" if start and end else "",
+        "entry_count": None,
         "id": row["id"],
         "title": f"{start:%B %Y}" if start else "Monthly reflection",
         "generated": _generated(row, zone),
@@ -159,7 +171,147 @@ def monthly_view(conn: sqlite3.Connection, zone: str) -> dict | None:
         "summary": _str(content.get("summary")),
         "patterns": _patterns(content, row["id"]),
         "focus_next": [_str(_dict(f).get("text")) for f in _list(content.get("focus_next")) if _str(_dict(f).get("text"))],
+        "v2": _v2(content, start, end, False) if content.get("v") == 2 else None,
     }
+
+
+_OUT = ("helped", "worse", "neutral")
+_TRUE = ("yes", "no", "unclear")
+
+
+def _lines(value) -> list[str]:
+    return [t for t in (_str(x) for x in _list(value)) if t]
+
+
+def _bars(by_day, start: date | None, end: date | None, weekly: bool) -> list[dict]:
+    """One bar per local day from stored by_day (computed from the entries, not by the AI)."""
+    if start is None or end is None:
+        return []
+    mapping = {_str(_dict(d).get("date")): _dict(d) for d in _list(by_day)}
+    out, day = [], start
+    while day <= end and len(out) < 31:
+        item = mapping.get(day.isoformat(), {})
+        energy = item.get("energy") if isinstance(item.get("energy"), int) and not isinstance(item.get("energy"), bool) else None
+        mood = _str(item.get("mood"))
+        title = short_day(day)
+        if energy:
+            title += f", energy {energy}/10"
+        if mood:
+            title += f", mood {mood}"
+        if not item:
+            title += ", no entry"
+        label = "MTWTFSS"[day.weekday()] if weekly else (str(day.day) if day.day in (1, 8, 15, 22, 29) else "")
+        out.append({"h": round(energy * 4.5) if energy else 4, "has": bool(energy), "title": title, "label": label})
+        day = date.fromordinal(day.toordinal() + 1)
+    return out
+
+
+def _v2(content: dict, start, end, weekly: bool) -> dict:
+    triggers = []
+    for t in _list(content.get("triggers")):
+        t = _dict(t)
+        day = _iso(t.get("date"))
+        outcome = t.get("outcome")
+        triggers.append({
+            "trigger": _str(t.get("trigger")), "felt": _str(t.get("felt")), "did": _str(t.get("did")),
+            "outcome": outcome if outcome in _OUT else "neutral", "quote": _str(t.get("quote")),
+            "when": short_day(day) if day else "",
+            "count": t.get("count") if isinstance(t.get("count"), int) and not isinstance(t.get("count"), bool) else None,
+        })
+    worries = []
+    for w in _list(content.get("worries")):
+        w = _dict(w)
+        times = w.get("times")
+        came = w.get("came_true")
+        worries.append({"worry": _str(w.get("worry")),
+                        "times": times if isinstance(times, int) and not isinstance(times, bool) else 1,
+                        "came_true": came if came in _TRUE else "unclear", "note": _str(w.get("note"))})
+    patterns = []
+    for p in _list(content.get("patterns")):
+        p = _dict(p)
+        kind = p.get("kind")
+        patterns.append({"label": _str(p.get("label")), "text": _str(p.get("text")),
+                         "kind": kind if kind in ("link", "risk", "strength") else "link"})
+    recap = []
+    for r in _list(content.get("recap")):
+        r = _dict(r)
+        d = _week_start(r.get("week"))
+        recap.append({"label": f"Week of {day_month(d)}" if d else _str(r.get("week")), "text": _str(r.get("text"))})
+    improve = [{"step": _str(_dict(i).get("step")), "why": _str(_dict(i).get("why"))}
+               for i in _list(content.get("improve")) if _str(_dict(i).get("step"))]
+    return {
+        "summary": _lines(content.get("summary_lines")),
+        "overall_feel": _str(content.get("overall_feel")),
+        "takeaway": _str(content.get("takeaway")),
+        "patterns": patterns,
+        "triggers": [t for t in triggers if t["trigger"]],
+        "worries": [w for w in worries if w["worry"]],
+        "improve": improve,
+        "questions": _lines(content.get("questions")),
+        "recap": recap,
+        "focus_progress": _str(content.get("focus_progress")),
+        "hidden_wins": _lines(content.get("hidden_wins")),
+        "bars": _bars(content.get("by_day"), start, end, weekly),
+    }
+
+
+def history(conn: sqlite3.Connection) -> dict:
+    """Every stored report per kind (latest version of each period), newest first, for the accordion lists."""
+    out = {}
+    for kind in ("weekly", "monthly"):
+        rows = conn.execute(
+            "SELECT id, period_start, period_end FROM reflections WHERE kind = ? AND is_latest = 1"
+            " ORDER BY period_end DESC, id DESC LIMIT 60", (kind,),
+        ).fetchall()
+        items = []
+        for i, r in enumerate(rows):
+            s, e = _iso(r["period_start"]), _iso(r["period_end"])
+            if not s or not e:
+                continue
+            if kind == "weekly":
+                items.append({"id": r["id"], "label": f"{short_day(s)} to {short_day(e)}", "sub": "Latest" if i == 0 else ""})
+            else:
+                items.append({"id": r["id"], "label": f"{s:%B %Y}", "sub": f"{day_month(s)} to {day_month(e)}"})
+        out[kind] = items
+    return out
+
+
+_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+RIBBON_MAX = 80
+PREVIEW_CHARS = 200
+
+
+def _preview(text: str) -> str:
+    flat = " ".join(text.split())
+    parts = _SENTENCE.split(flat)
+    out = " ".join(parts[:3])
+    if len(out) > PREVIEW_CHARS:
+        out = out[:PREVIEW_CHARS].rstrip() + "\u2026"
+    elif len(parts) > 3:
+        out += "\u2026"
+    return out
+
+
+def _entry_when(row, zone: str) -> str:
+    try:
+        utc = datetime.strptime(row["created_at"], _STAMP).replace(tzinfo=timezone.utc)
+        local = utc.astimezone(ZoneInfo(zone))
+        return f"{local:%a} {local.day} {local:%b}, {local:%-I:%M %p}"
+    except (ValueError, TypeError):
+        return str(row["local_date"])
+
+
+def ribbon(conn: sqlite3.Connection, row, zone: str) -> list[dict]:
+    entries = conn.execute(
+        "SELECT id, created_at, local_date, text FROM entries WHERE local_date BETWEEN ? AND ?"
+        " ORDER BY created_at, id LIMIT ?", (row["period_start"], row["period_end"], RIBBON_MAX),
+    ).fetchall()
+    return [{"id": e["id"], "when": _entry_when(e, zone), "preview": _preview(e["text"])} for e in entries]
+
+
+def report_context(conn: sqlite3.Connection, row, zone: str) -> dict:
+    view = weekly_view_row(row, zone) if row["kind"] == "weekly" else monthly_view_row(row, zone)
+    return {"kind": row["kind"], "r": view, "ribbon": ribbon(conn, row, zone)}
 
 
 _UNANSWERED = "the AI service did not answer"
@@ -284,6 +436,8 @@ def page_context(conn: sqlite3.Connection, now: datetime) -> dict:
         "monthly": monthly_view(conn, zone),
         "states": {k: reflection_state(conn, k, now) for k in jobs.KINDS},
         "focus": focus_view(conn, zone),
+        "history": history(conn),
+        "ribbons": {k: (ribbon(conn, reflections.latest(conn, k), zone) if reflections.latest(conn, k) else []) for k in ("weekly", "monthly")},
     }
 
 

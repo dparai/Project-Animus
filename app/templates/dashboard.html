@@ -47,8 +47,22 @@
           <div class="status-wrap" role="status">{% with s = states[kind] %}{% include "_status.html" %}{% endwith %}</div>
           <button type="button" class="btn-main btn-gen" hx-post="/reflections/generate?kind={{ kind }}" hx-target="#status-{{ kind }}" hx-swap="outerHTML" hx-disabled-elt="this">Generate now</button>
         </div>
-        <div class="scroll" tabindex="0" aria-label="{{ kind | capitalize }} reflection">
+        <div class="scroll" tabindex="0" aria-label="{{ kind | capitalize }} reflections">
+          {% if history[kind] %}
+          <ul class="acc">
+            {% for h in history[kind] %}
+            <li class="acc-item">
+              <button type="button" class="acc-row" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="rep-{{ h.id }}" data-acc-btn{% if not loop.first %} hx-get="/reflections/{{ h.id }}/view" hx-trigger="click once" hx-target="#rep-{{ h.id }}" hx-swap="innerHTML"{% endif %}>
+                <span class="acc-label">{{ h.label }}{% if h.sub %}<small>{{ h.sub }}</small>{% endif %}</span>
+                <span class="acc-chev" aria-hidden="true">&#9662;</span>
+              </button>
+              <div class="acc-panel" id="rep-{{ h.id }}"{% if not loop.first %} hidden{% endif %}>{% if loop.first %}{% set ribbon = ribbons[kind] %}{% include "_report.html" %}{% endif %}</div>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
           {% include "_reflection.html" %}
+          {% endif %}
         </div>
         <p class="foot">{% if kind == 'weekly' %}Quotes are checked against your entries. The wording around them is the AI's own.{% else %}Patterns are drawn from your weekly reflections. The wording is the AI's own.{% endif %}</p>
       </div>
@@ -241,6 +255,44 @@
     .scroll[aria-label="Focus areas list"] { overflow: visible; }
   }
   @media (prefers-reduced-motion: reduce) { .tab, .focus-btn, .claim-btn, .btn-quiet { transition: none; } }
+  .acc { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .acc-row { width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; border: 0; border-radius: var(--radius-card); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background 160ms ease; }
+  .acc-row:hover { background: var(--raised); }
+  .acc-row[aria-expanded="true"] { background: var(--raised); }
+  .acc-label { display: grid; gap: 2px; font-weight: 500; }
+  .acc-label small { color: var(--muted); font-size: var(--fs-small); font-weight: 400; }
+  .acc-chev { color: var(--muted); transition: transform 160ms ease; }
+  .acc-row[aria-expanded="true"] .acc-chev { transform: rotate(180deg); }
+  .acc-panel { padding: 14px 4px 6px; }
+  .acc-panel[hidden] { display: none; }
+  .sum-list, .imp-list { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+  .mood-bars { display: block; width: 100%; max-width: 560px; height: auto; margin-top: 8px; }
+  .mood-bars .b-on { fill: var(--accent); }
+  .mood-bars .b-off { fill: var(--control); }
+  .mood-bars .b-l { fill: var(--faint); font-size: 7px; }
+  .pat-list, .trig-list, .wor-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .pat { display: grid; gap: 4px; }
+  .pat-text { color: var(--muted); }
+  .tag, .chip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; line-height: 20px; background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
+  .tag-risk, .chip-worse, .chip-true-yes { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+  .tag-strength, .chip-helped, .chip-true-no { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+  .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .arrow { color: var(--faint); }
+  .trig { padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .wor { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  .wor-name { font-weight: 500; }
+  .wor-meta, .wor-note { color: var(--muted); font-size: 13px; }
+  .imp-step { font-weight: 500; }
+  .imp-why { color: var(--muted); }
+  .ribbon { list-style: none; margin: 8px 0 0; padding: 0 0 6px; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: thin; }
+  .ent { width: 220px; min-height: 96px; display: grid; align-content: start; gap: 4px; padding: 10px 12px; border: 1px solid var(--control); /* taste-skill-ignore: entry card outline */ border-radius: 16px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+  .ent:hover { background: var(--raised); }
+  .ent-when { color: var(--muted); font-size: var(--fs-small); }
+  .ent-text { font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+  .note-form { display: grid; gap: 8px; margin-top: 12px; }
+  .note-entry { margin: 0; padding: 8px 12px; background: var(--raised); border-radius: 12px; color: var(--muted); font-size: 13px; line-height: 20px; white-space: pre-line; overflow-wrap: anywhere; }
+  .note-done { margin: 12px 0 0; padding: 10px 14px; background: var(--pill-positive-bg); color: var(--pill-positive-ink); border-radius: 12px; }
+  .foot { margin-top: 12px; }
 </style>
 <script nonce="{{ csp_nonce }}">
   // Keep keyboard focus on the same focus area after its list is swapped.
@@ -321,6 +373,33 @@
       var saved = document.getElementById(sessionStorage.getItem('animus-reflect-tab') || '');
       if (saved && tabs.indexOf(saved) > -1) { select(saved, false); }
     } catch (err) {}
+  })();
+  (function () {
+    function closeItem(item) {
+      var b = item.querySelector('[data-acc-btn]');
+      var p = item.querySelector('.acc-panel');
+      if (b) { b.setAttribute('aria-expanded', 'false'); }
+      if (p) { p.hidden = true; }
+    }
+    document.body.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-acc-btn]') : null;
+      if (b) {
+        var item = b.closest('.acc-item');
+        var open = b.getAttribute('aria-expanded') === 'true';
+        [].forEach.call(item.parentNode.querySelectorAll('.acc-item'), closeItem);
+        if (!open) { b.setAttribute('aria-expanded', 'true'); item.querySelector('.acc-panel').hidden = false; }
+        return;
+      }
+      var c = e.target.closest ? e.target.closest('[data-note-cancel]') : null;
+      if (c) { var slot = c.closest('.note-slot'); if (slot) { slot.innerHTML = ''; } }
+    });
+    document.body.addEventListener('htmx:afterSettle', function (e) {
+      var t = e.detail.target;
+      if (!t || !t.classList || !t.classList.contains('note-slot')) { return; }
+      var ta = t.querySelector('textarea');
+      var done = t.querySelector('.note-done');
+      if (ta) { ta.focus(); } else if (done) { done.focus(); }
+    });
   })();
 </script>
 {% endblock %}

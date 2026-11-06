@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -9,7 +10,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.staticfiles import StaticFiles
@@ -40,6 +41,7 @@ DEFAULT_ALLOWED_HOSTS = config.BASE_ALLOWED_HOSTS
 MOOD_BY_KEY = {m.key: m for m in MOODS}
 ENTRY_MAX = 20_000  # characters of entry text (after trimming)
 NOTE_MAX = 300  # owner's optional note on a correction, in characters
+ENTRY_NOTE_MAX = 1000  # owner's thoughts on one entry, in characters
 QUOTED_CLAIM_MAX = 200  # claim text quoted in the stored note; keeps one note under about 600 characters
 
 
@@ -553,6 +555,56 @@ def create_app(
             raise HTTPException(status_code=404, detail="Focus area not found")
         return _focus_fragment(request, conn)
 
+    @app.get("/reflections/{reflection_id}/view")
+    async def reflection_view(request: Request, reflection_id: int, conn=Depends(get_conn)):
+        row = reflections.get(conn, reflection_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Reflection not found")
+        return templates.TemplateResponse(
+            request, "_report.html", dashboard.report_context(conn, row, tz.get_timezone(conn)),
+        )
+
+    def _note_entry(conn, reflection_id: int, entry_id: int):
+        if reflections.get(conn, reflection_id) is None:
+            raise HTTPException(status_code=404, detail="Reflection not found")
+        entry = conn.execute("SELECT id, created_at, local_date, text FROM entries WHERE id = ?", (entry_id,)).fetchone()
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        return entry
+
+    def _note_fragment(request, conn, reflection_id, entry, *, note="", message=None, done=False, status_code=200):
+        return templates.TemplateResponse(
+            request, "_entry_note.html",
+            {"rid": reflection_id, "eid": entry["id"], "text": entry["text"], "note": note, "message": message,
+             "done": done, "note_max": ENTRY_NOTE_MAX, "when": dashboard._entry_when(entry, tz.get_timezone(conn))},
+            status_code=status_code,
+        )
+
+    @app.get("/reflections/{reflection_id}/entries/{entry_id}/note")
+    async def entry_note_form(request: Request, reflection_id: int, entry_id: int, conn=Depends(get_conn)):
+        return _note_fragment(request, conn, reflection_id, _note_entry(conn, reflection_id, entry_id))
+
+    @app.post("/reflections/{reflection_id}/entries/{entry_id}/note")
+    async def entry_note_save(
+        request: Request, reflection_id: int, entry_id: int, note: str = Form(""), conn=Depends(get_conn)
+    ):
+        entry = _note_entry(conn, reflection_id, entry_id)
+        note = note.strip()
+        if not note:
+            return _note_fragment(request, conn, reflection_id, entry, status_code=422,
+                                  message="Write something first.")
+        if len(note) > ENTRY_NOTE_MAX:
+            return _note_fragment(
+                request, conn, reflection_id, entry, note=note, status_code=422,
+                message=f"That is {len(note)} characters. Please keep it to {ENTRY_NOTE_MAX} characters or fewer.",
+            )
+        when = dashboard._entry_when(entry, tz.get_timezone(conn))
+        memory.add_note(
+            conn, kind="note", text=f"My thoughts on my entry from {when}: {_one_line(note)}",
+            reflection_id=reflection_id, now=datetime.now(timezone.utc),
+        )
+        return _note_fragment(request, conn, reflection_id, entry, done=True)
+
     # ---- Corrections and memory notes ----
 
     def _claim(conn, reflection_id: int, claim_id: str) -> dict:
@@ -633,6 +685,58 @@ def create_app(
         return templates.TemplateResponse(
             request, "_ask_answer.html",
             {"r": result, "citations": [_citation_view(c) for c in result.citations]},
+        )
+
+    _ASK_STEPS = {
+        "asking": "Asking the model",
+        "checking": "Checking the answer against your entries",
+        "retry": "Looking again, more carefully",
+    }
+
+    def _sse(kind: str, text: str) -> str:
+        return "data: " + json.dumps({"k": kind, "t": text}) + "\n\n"
+
+    @app.post("/ask/stream")
+    async def ask_stream(request: Request, question: str = Form(""), conn=Depends(get_conn)):
+        """Same answer as POST /ask, sent as server events: live step names, then the finished card."""
+        zone = tz.get_timezone(conn)
+        today = datetime.now(timezone.utc).astimezone(ZoneInfo(zone)).date()
+        try:
+            ctx = ask.prepare(conn, question, today)
+        except ValueError:
+            return error(request, "Type a question first (up to 500 characters).")
+        llm = jobs.resolve_llm(app.state.llm)
+        loop = asyncio.get_running_loop()
+        steps: asyncio.Queue = asyncio.Queue()
+
+        def progress(stage: str) -> None:  # called from the worker thread
+            loop.call_soon_threadsafe(steps.put_nowait, _ASK_STEPS.get(stage, ""))
+
+        async def events():
+            n = len(ctx.entries)
+            if n:
+                yield _sse("step", f"Found {n} {'entry' if n == 1 else 'entries'} to read")
+            task = asyncio.create_task(asyncio.to_thread(ask.answer, llm, ctx, progress))
+            while not task.done() or not steps.empty():
+                try:
+                    text = await asyncio.wait_for(steps.get(), timeout=0.2)
+                except asyncio.TimeoutError:
+                    continue
+                if text:
+                    yield _sse("step", text)
+            try:
+                result = await task
+            except Exception as exc:
+                result = ask._error_result(exc)
+            page = templates.TemplateResponse(
+                request, "_ask_answer.html",
+                {"r": result, "citations": [_citation_view(c) for c in result.citations]},
+            )
+            yield _sse("done", page.body.decode("utf-8"))
+
+        return StreamingResponse(
+            events(), media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
     # ---- Counselor chat ----

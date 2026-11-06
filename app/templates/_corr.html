@@ -1,0 +1,6 @@
+{% macro correction_slot(rid, cid) %}
+<div class="claim-actions" id="actions-{{ rid }}-{{ cid }}" data-claim-actions>
+  <button type="button" class="claim-btn" aria-expanded="false" aria-controls="corr-{{ rid }}-{{ cid }}" aria-describedby="text-{{ rid }}-{{ cid }}" hx-get="/reflections/{{ rid }}/claims/{{ cid | urlencode }}/correct" hx-target="#corr-{{ rid }}-{{ cid }}" hx-swap="innerHTML">Not what I meant</button>
+  <div class="corr-slot" id="corr-{{ rid }}-{{ cid }}"></div>
+</div>
+{% endmacro %}

@@ -1,0 +1,15 @@
+{% if done %}
+<p class="note-done" tabindex="-1" role="status">Saved to memory. Counselor can use it now.</p>
+{% else %}
+<form class="note-form" hx-post="/reflections/{{ rid }}/entries/{{ eid }}/note" hx-target="#note-{{ rid }}" hx-swap="innerHTML">
+  <p class="corr-label">Your thoughts on the entry from {{ when }}</p>
+  <blockquote class="note-entry">{{ text }}</blockquote>
+  <label class="sr-only" for="nt-{{ rid }}-{{ eid }}">Your thoughts</label>
+  <textarea id="nt-{{ rid }}-{{ eid }}" class="corr-text" name="note" rows="4" maxlength="{{ note_max }}" required placeholder="What do you think about this entry now?">{{ note }}</textarea>
+  {% if message %}<p class="note" role="alert">{{ message }}</p>{% endif %}
+  <div class="corr-actions">
+    <button type="submit" class="btn-main">Save to memory</button>
+    <button type="button" class="btn-quiet" data-note-cancel>Cancel</button>
+  </div>
+</form>
+{% endif %}

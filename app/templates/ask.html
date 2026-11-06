@@ -13,7 +13,7 @@
       <input id="ask-q" class="ask-input" type="text" name="question" maxlength="500" required enterkeyhint="send" placeholder="When did I last feel proud of my work?">
       <button id="ask-go" class="btn-main ask-go" type="submit">Ask</button>
     </div>
-    <p id="ask-form-state" class="ask-state" aria-hidden="true"><span class="ask-dot"></span>Reading your entries. This can take a minute.</p>
+    <p id="ask-form-state" class="ask-state" aria-hidden="true"><span class="ask-dot"></span><span id="ask-step">Reading your entries. This can take a minute.</span></p>
     <p id="ask-live" class="sr-only" aria-live="polite"></p>
   </form>
 
@@ -34,7 +34,7 @@
   .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
   .ask-go { flex: none; min-width: 80px; padding: 0 22px; }
   .ask-state { display: none; align-items: center; gap: 8px; margin: 0; min-height: 20px; color: var(--muted); font-size: var(--fs-small); }
-  .ask-state.htmx-request { display: flex; }
+  .ask-state.htmx-request, .ask-state.is-busy { display: flex; }
   .ask-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--accent); animation: ask-pulse 1.1s ease-in-out infinite; }
   @keyframes ask-pulse { 50% { opacity: .25; } }
 
@@ -82,6 +82,53 @@
       result.replaceChildren(card);
       live.textContent = "Couldn't reach the app. Try again.";
     }
+    var go = document.getElementById('ask-go');
+    var stateEl = document.getElementById('ask-form-state');
+    var stepEl = document.getElementById('ask-step');
+    function show(html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      result.replaceChildren.apply(result, Array.prototype.slice.call(doc.body.childNodes));
+    }
+    function finish() { busy(false); stateEl.classList.remove('is-busy'); go.disabled = false; }
+    function handle(block) {
+      var line = block.split('\n').filter(function (l) { return l.indexOf('data: ') === 0; })[0];
+      if (!line) { return; }
+      var msg = JSON.parse(line.slice(6));
+      if (msg.k === 'step') { stepEl.textContent = msg.t; live.textContent = msg.t; }
+      else if (msg.k === 'done') { show(msg.t); live.textContent = 'Answer ready.'; }
+    }
+    function stream() {
+      var token = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+      var body = new URLSearchParams({ question: document.getElementById('ask-q').value }).toString();
+      busy(true); stateEl.classList.add('is-busy'); go.disabled = true;
+      stepEl.textContent = 'Reading your entries';
+      fetch('/ask/stream', { method: 'POST', body: body,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': token } })
+        .then(function (resp) {
+          if (!resp.ok) {
+            return resp.text().then(function (t) {
+              if (resp.status === 422) { show(t); finish(); } else { throw new Error('http'); }
+            });
+          }
+          var reader = resp.body.getReader(), dec = new TextDecoder(), buf = '';
+          function pump() {
+            return reader.read().then(function (r) {
+              if (r.done) { finish(); return; }
+              buf += dec.decode(r.value, { stream: true });
+              var parts = buf.split('\n\n'); buf = parts.pop();
+              parts.forEach(handle);
+              return pump();
+            });
+          }
+          return pump();
+        })
+        .catch(function () { finish(); fail(); });
+    }
+    form.addEventListener('htmx:confirm', function (e) {
+      if (!window.fetch || !window.ReadableStream || !window.TextDecoder) { return; }
+      e.preventDefault();
+      stream();
+    });
     form.addEventListener('htmx:beforeRequest', function () { busy(true); });
     form.addEventListener('htmx:afterRequest', function (e) { if (e.detail.successful || e.detail.failed === false) { busy(false); } });
     form.addEventListener('htmx:responseError', fail);

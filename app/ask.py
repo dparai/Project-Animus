@@ -148,11 +148,18 @@ def _error_result(exc) -> AskResult:
     return AskResult(found=False, answer=error_text("error"), error="error")
 
 
-def answer(llm, ctx: AskContext) -> AskResult:
+def answer(llm, ctx: AskContext, progress=None) -> AskResult:
     """First call uses the interactive model order. With no verified answer, one more call may follow:
     forced onto the escalation (strongest) model, even if that model made the first attempt. The first call
     runs with thinking off for speed, the second always with full thinking; with a single interactive
     model it is a plain retry (also with thinking)."""
+    def note(stage: str) -> None:  # optional live status for the page; never allowed to break the answer
+        if progress is not None:
+            try:
+                progress(stage)
+            except Exception:
+                pass
+
     if not ctx.entries:
         return AskResult(found=False, answer=NOT_FOUND)
     system = prompts.ask_system()
@@ -167,6 +174,7 @@ def answer(llm, ctx: AskContext) -> AskResult:
             log.info("ask second call skipped, time budget used")
             break
         prompt = user if attempt == 0 or not dropped else user + "\n\n" + prompts.ask_retry_note()
+        note("retry" if attempt else "asking")
         try:
             raw = _call(llm, system, prompt, (big,) if escalate else models, thinking=attempt > 0)
         except Exception as exc:
@@ -176,6 +184,7 @@ def answer(llm, ctx: AskContext) -> AskResult:
                 log.warning("ask escalation failed error=%s", type(exc).__name__)
                 break
             return _error_result(exc)
+        note("checking")
         text, said_found, cites = _verify(raw, ctx.entries)
         if text and cites and said_found and _supported(text, cites, ctx.entries):
             return AskResult(found=True, answer=text, citations=cites, model=_model_name(llm))

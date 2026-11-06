@@ -1,0 +1,17 @@
+{% if ribbon %}
+<section class="r-sec" aria-labelledby="h-rib-{{ r.id }}">
+  <h3 id="h-rib-{{ r.id }}" class="r-sec-title">Entries from this {{ 'week' if r.kind == 'weekly' else 'month' }}</h3>
+  <p class="empty-text">Pick one to write your thoughts. They are saved to memory, and Counselor can use them.</p>
+  <ul class="ribbon">
+    {% for e in ribbon %}
+    <li>
+      <button type="button" class="ent" hx-get="/reflections/{{ r.id }}/entries/{{ e.id }}/note" hx-target="#note-{{ r.id }}" hx-swap="innerHTML">
+        <time class="ent-when num">{{ e.when }}</time>
+        <span class="ent-text">{{ e.preview }}</span>
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="note-slot" id="note-{{ r.id }}"></div>
+</section>
+{% endif %}

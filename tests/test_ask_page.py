@@ -119,3 +119,37 @@ def test_page_has_busy_and_error_hooks(client):
     assert 'aria-busy="false"' in html and 'id="ask-live"' in html
     assert 'hx-disabled-elt="#ask-go"' in html and "#ask-q" not in html.split("hx-disabled-elt=")[1].split(">")[0]
     assert "innerHTML" not in html.split("<script nonce=")[-1]
+
+
+def test_page_streams_steps(client):
+    html = client.get("/ask").text
+    assert "/ask/stream" in html and 'id="ask-step"' in html and "htmx:confirm" in html
+
+
+def _events(text):
+    import json
+    return [json.loads(b[6:]) for b in text.split("\n\n") if b.startswith("data: ")]
+
+
+def test_ask_stream_sends_steps_then_answer(db_path, seeded):
+    llm = FakeLLM([_good(seeded)])
+    r = make_client(db_path, llm).post("/ask/stream", data={"question": "mural cafe"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
+    ev = _events(r.text)
+    assert [e["k"] for e in ev].count("done") == 1 and ev[-1]["k"] == "done"
+    steps = [e["t"] for e in ev if e["k"] == "step"]
+    assert steps[0] == "Found 1 entry to read"
+    assert "Asking the model" in steps and "Checking the answer against your entries" in steps
+    assert QUOTE in ev[-1]["t"]
+
+
+def test_ask_stream_blank_question_422(client):
+    assert client.post("/ask/stream", data={"question": " "}).status_code == 422
+
+
+def test_ask_stream_no_match_still_finishes(db_path, seeded):
+    llm = FakeLLM([])
+    r = make_client(db_path, llm).post("/ask/stream", data={"question": "zebra quantum"})
+    ev = _events(r.text)
+    assert ev[-1]["k"] == "done" and "Not in your journal" in ev[-1]["t"]
+    assert llm.calls == []

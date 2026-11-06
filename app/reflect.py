@@ -9,8 +9,8 @@ from .periods import Period
 MAX_FOCUS = 3
 MIN_QUOTE = 15
 MAX_CALLS = 3
-FIRST_TOKENS = 4096
-RETRY_TOKENS = 8192
+FIRST_TOKENS = 8192
+RETRY_TOKENS = 12288
 VERDICTS = ("progressing", "stalled", "failing")
 
 _WS = re.compile(r"\s+")
@@ -156,6 +156,155 @@ def _model_name(llm) -> str:
     return str(getattr(getattr(llm, "_settings", None), "model", None) or "unknown")
 
 
+_KINDS = ("link", "risk", "strength")
+_OUTCOMES = ("helped", "worse", "neutral")
+_CAME_TRUE = ("yes", "no", "unclear")
+
+
+def _short(value, limit: int = 300) -> str:
+    return _norm(_str(value))[:limit]
+
+
+def _lines(value, limit: int) -> list[str]:
+    out = []
+    for item in _list(value):
+        text = _short(item, 240) if isinstance(item, str) else ""
+        if text:
+            out.append(text)
+    return out[:limit]
+
+
+def _count(value) -> int:
+    n = _int(value)
+    return 1 if n is None or n < 1 else min(n, 99)
+
+
+def _pick(value, allowed: tuple, default: str) -> str:
+    return value if isinstance(value, str) and value in allowed else default
+
+
+def _patterns(value, limit: int, weeks: set | None = None) -> list[dict]:
+    out = []
+    for item in _list(value):
+        if not isinstance(item, dict):
+            continue
+        text = _short(item.get("text"), 400)
+        if not text:
+            continue
+        row = {"label": _short(item.get("label"), 80) or text[:60],
+               "kind": _pick(item.get("kind"), _KINDS, "link"), "text": text}
+        if weeks is not None:
+            keep = list(dict.fromkeys(w for w in _list(item.get("weeks")) if isinstance(w, str) and w in weeks))
+            if not keep:
+                continue
+            row["weeks"] = keep
+        out.append(row)
+    return out[:limit]
+
+
+def _improve(value, limit: int) -> list[dict]:
+    out = []
+    for item in _list(value):
+        step = _short(item.get("step"), 300) if isinstance(item, dict) else ""
+        if step:
+            out.append({"step": step, "why": _short(item.get("why"), 300)})
+    return out[:limit]
+
+
+def _worries(value, limit: int, weeks: set | None = None) -> list[dict]:
+    out = []
+    for item in _list(value):
+        worry = _short(item.get("worry"), 200) if isinstance(item, dict) else ""
+        if not worry:
+            continue
+        row = {"worry": worry, "times": _count(item.get("times")),
+               "came_true": _pick(item.get("came_true"), _CAME_TRUE, "unclear"),
+               "note": _short(item.get("note"), 300)}
+        if weeks is not None:
+            row["weeks"] = [w for w in _list(item.get("weeks")) if isinstance(w, str) and w in weeks]
+        out.append(row)
+    return out[:limit]
+
+
+def day_series(entries) -> list[dict]:
+    """Per local day: last mood written and average energy. Computed from the entries, never by the model."""
+    days: dict = {}
+    for e in entries:
+        d = days.setdefault(e["local_date"], {"mood": None, "energy": []})
+        if e["mood"]:
+            d["mood"] = e["mood"]
+        if e["energy_score"] is not None:
+            d["energy"].append(e["energy_score"])
+    return [{"date": k, "mood": v["mood"],
+             "energy": round(sum(v["energy"]) / len(v["energy"])) if v["energy"] else None}
+            for k, v in sorted(days.items())]
+
+
+def weekly_extra(raw, entries) -> dict:
+    """The detailed report sections. Triggers need a verbatim quote like wins do; the rest is the model's wording."""
+    raw = raw if isinstance(raw, dict) else {}
+    by_id = {e["id"]: e for e in entries}
+    triggers = []
+    for item in _list(raw.get("triggers")):
+        if not isinstance(item, dict):
+            continue
+        entry = by_id.get(_int(item.get("entry_id")))
+        quote = _match_quote(_str(item.get("quote")), entry["text"]) if entry is not None else None
+        trigger = _short(item.get("trigger"), 200)
+        if quote is None or not trigger:
+            continue
+        triggers.append({"trigger": trigger, "felt": _short(item.get("felt"), 200),
+                         "did": _short(item.get("did"), 200),
+                         "outcome": _pick(item.get("outcome"), _OUTCOMES, "neutral"),
+                         "quote": quote, "entry_id": entry["id"], "date": entry["local_date"]})
+    return {
+        "v": 2,
+        "summary_lines": _lines(raw.get("summary"), 5),
+        "overall_feel": _short(raw.get("overall_feel"), 600),
+        "patterns": _patterns(raw.get("patterns"), 8),
+        "triggers": triggers[:5],
+        "worries": _worries(raw.get("worries"), 5),
+        "improve": _improve(raw.get("improve"), 3),
+        "questions": _lines(raw.get("questions"), 3),
+        "takeaway": _short(raw.get("takeaway"), 300),
+        "by_day": day_series(entries),
+    }
+
+
+def monthly_extra(raw, week_keys: list[str], entries) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    allowed = set(week_keys)
+    triggers = []
+    for item in _list(raw.get("triggers")):
+        trigger = _short(item.get("trigger"), 200) if isinstance(item, dict) else ""
+        if not trigger:
+            continue
+        triggers.append({"trigger": trigger, "felt": _short(item.get("felt"), 200),
+                         "did": _short(item.get("did"), 200),
+                         "outcome": _pick(item.get("outcome"), _OUTCOMES, "neutral"),
+                         "count": _count(item.get("count")),
+                         "weeks": [w for w in _list(item.get("weeks")) if isinstance(w, str) and w in allowed]})
+    recap, seen = [], set()
+    for item in _list(raw.get("recap")):
+        week = item.get("week") if isinstance(item, dict) else None
+        text = _short(item.get("text"), 400) if isinstance(item, dict) else ""
+        if isinstance(week, str) and week in allowed and week not in seen and text:
+            seen.add(week)
+            recap.append({"week": week, "text": text})
+    return {
+        "v": 2,
+        "summary_lines": _lines(raw.get("summary"), 10),
+        "triggers": triggers[:10],
+        "worries": _worries(raw.get("worries"), 8, allowed),
+        "recap": recap,
+        "focus_progress": _short(raw.get("focus_progress"), 800),
+        "hidden_wins": _lines(raw.get("hidden_wins"), 4),
+        "improve": _improve(raw.get("improve"), 5),
+        "questions": _lines(raw.get("questions"), 5),
+        "by_day": day_series(entries),
+    }
+
+
 def generate_weekly(conn, llm, period: Period, now: datetime) -> int | None:
     entries = periods.entries_for(conn, period)
     if not entries:
@@ -174,6 +323,7 @@ def generate_weekly(conn, llm, period: Period, now: datetime) -> int | None:
         return cleaned_, dropped_
 
     raw, used, tokens = _ask(llm, system, user, MAX_CALLS, FIRST_TOKENS)
+    chosen = raw
     cleaned, dropped = check(raw)
     offered = _offered(raw)
     if offered >= 2 and len(dropped) / offered > 0.5 and used < MAX_CALLS:
@@ -188,6 +338,7 @@ def generate_weekly(conn, llm, period: Period, now: datetime) -> int | None:
             cleaned2, dropped2 = check(raw2)
             if _verified(cleaned2) > _verified(cleaned):
                 cleaned, dropped = cleaned2, dropped2
+                chosen = raw2
 
     unverified = _verified(cleaned) == 0
     if unverified:
@@ -216,6 +367,7 @@ def generate_weekly(conn, llm, period: Period, now: datetime) -> int | None:
             "unverified": unverified,
             "entry_count": len(entries),  # what the model saw, fixed at generation time
             "covers_through": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            **weekly_extra(chosen, entries),
         }
         rid = reflections.save(
             conn, kind="weekly", period_key=period.key,
@@ -230,8 +382,8 @@ def generate_weekly(conn, llm, period: Period, now: datetime) -> int | None:
     return rid
 
 
-MAX_PATTERNS = 4
-MAX_NEXT = 3
+MAX_PATTERNS = 12
+MAX_NEXT = 5
 MONTHLY_CALLS = 2
 
 
@@ -251,6 +403,10 @@ def _weeks_in_month(conn, period: Period) -> list[dict]:
             "wins": [c for c in _list(content.get("wins")) if isinstance(c, dict)],
             "tough_love": [c for c in _list(content.get("tough_love")) if isinstance(c, dict)],
             "focus": [f for f in _list(content.get("focus")) if isinstance(f, dict)],
+            "summary_lines": _lines(content.get("summary_lines"), 5),
+            "patterns": [c for c in _list(content.get("patterns")) if isinstance(c, dict)],
+            "triggers": [c for c in _list(content.get("triggers")) if isinstance(c, dict)],
+            "worries": [c for c in _list(content.get("worries")) if isinstance(c, dict)],
         })
     return weeks
 
@@ -285,7 +441,9 @@ def _clean_monthly(raw, week_keys: list[str]) -> tuple[dict, list[str]]:
         if not text or not weeks:
             dropped.append(pid)
             continue
-        patterns.append({"id": pid, "text": text, "weeks": weeks})
+        patterns.append({"id": pid, "text": text, "weeks": weeks,
+                         "label": _short(item.get("label"), 80) or text[:60],
+                         "kind": _pick(item.get("kind"), _KINDS, "link")})
     patterns = patterns[:MAX_PATTERNS]
 
     focus_next = []
@@ -293,7 +451,10 @@ def _clean_monthly(raw, week_keys: list[str]) -> tuple[dict, list[str]]:
         text = _norm(_str(item.get("text"))) if isinstance(item, dict) else ""
         if text:
             focus_next.append({"text": text})
-    return {"summary": _norm(_str(raw.get("summary"))), "patterns": patterns,
+    summary = raw.get("summary")
+    if isinstance(summary, list):
+        summary = " ".join(_lines(summary, 10))
+    return {"summary": _norm(_str(summary)), "patterns": patterns,
             "focus_next": focus_next[:MAX_NEXT]}, dropped
 
 
@@ -312,7 +473,8 @@ def generate_monthly(conn, llm, period: Period, now: datetime) -> int | None:
     unverified = not cleaned["patterns"] and not cleaned["summary"]
     if unverified:
         cleaned = {"summary": "", "patterns": [], "focus_next": []}
-    content = {**cleaned, "weeks_used": week_keys, "short": short,
+    extra = monthly_extra(raw, week_keys, periods.entries_for(conn, period))
+    content = {**cleaned, **extra, "weeks_used": week_keys, "short": short,
                "dropped": dropped, "unverified": unverified}
     with conn:  # single transaction, matching generate_weekly
         return reflections.save(
