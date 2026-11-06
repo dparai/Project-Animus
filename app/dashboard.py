@@ -354,7 +354,7 @@ def reflection_state(conn: sqlite3.Connection, kind: str, now: datetime) -> dict
                 "poll": True, "hint": ""}
     if status == "failed":
         return {"text": f"Failed: {_reason(job['last_error'])}", "tone": "bad", "poll": False,
-                "hint": "Press Generate now to try again."}
+                "hint": "It will try again automatically."}
     if status == "skipped":
         what = "entries in that week" if kind == "weekly" else "weekly reflections in that month"
         return {"text": "Nothing to reflect on", "tone": "neutral", "poll": False, "hint": f"There were no {what}."}

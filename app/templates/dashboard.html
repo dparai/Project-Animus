@@ -45,18 +45,17 @@
       <div class="pane" role="tabpanel" id="pane-{{ kind }}" aria-labelledby="tab-{{ kind }}"{% if kind == 'monthly' %} hidden{% endif %}>
         <div class="pane-head">
           <div class="status-wrap" role="status">{% with s = states[kind] %}{% include "_status.html" %}{% endwith %}</div>
-          <button type="button" class="btn-main btn-gen" hx-post="/reflections/generate?kind={{ kind }}" hx-target="#status-{{ kind }}" hx-swap="outerHTML" hx-disabled-elt="this">Generate now</button>
         </div>
         <div class="scroll" tabindex="0" aria-label="{{ kind | capitalize }} reflections">
           {% if history[kind] %}
           <ul class="acc">
             {% for h in history[kind] %}
             <li class="acc-item">
-              <button type="button" class="acc-row" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="rep-{{ h.id }}" data-acc-btn{% if not loop.first %} hx-get="/reflections/{{ h.id }}/view" hx-trigger="click once" hx-target="#rep-{{ h.id }}" hx-swap="innerHTML"{% endif %}>
+              <button type="button" class="acc-row" aria-expanded="false" aria-controls="rep-{{ h.id }}" data-acc-btn{% if not loop.first %} hx-get="/reflections/{{ h.id }}/view" hx-trigger="click once" hx-target="#rep-{{ h.id }}" hx-swap="innerHTML"{% endif %}>
                 <span class="acc-label">{{ h.label }}{% if h.sub %}<small>{{ h.sub }}</small>{% endif %}</span>
                 <span class="acc-chev" aria-hidden="true">&#9662;</span>
               </button>
-              <div class="acc-panel" id="rep-{{ h.id }}"{% if not loop.first %} hidden{% endif %}>{% if loop.first %}{% set ribbon = ribbons[kind] %}{% include "_report.html" %}{% endif %}</div>
+              <div class="acc-panel" id="rep-{{ h.id }}" hidden>{% if loop.first %}{% set ribbon = ribbons[kind] %}{% include "_report.html" %}{% endif %}</div>
             </li>
             {% endfor %}
           </ul>

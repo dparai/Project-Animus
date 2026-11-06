@@ -5,12 +5,12 @@ import os
 import sys
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.staticfiles import StaticFiles
@@ -241,6 +241,16 @@ def create_app(
         return templates.TemplateResponse(
             request, "_error.html", {"message": message}, status_code=422
         )
+
+    @app.get("/theme-state")
+    async def theme_state(conn=Depends(get_conn)):
+        """Latest mood from the last 3 days; the page uses it to tint the background glow."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        row = conn.execute(
+            "SELECT mood FROM entries WHERE mood IS NOT NULL AND created_at >= ? ORDER BY created_at DESC, id DESC LIMIT 1",
+            (cutoff,),
+        ).fetchone()
+        return JSONResponse({"mood": row["mood"] if row else ""}, headers=authn.NO_STORE)
 
     @app.get("/healthz")
     async def healthz():

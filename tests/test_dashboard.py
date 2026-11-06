@@ -129,11 +129,9 @@ def test_dashboard_empty_state(client):
     assert r.status_code == 200
     html = r.text
     assert "No reflection yet" in html
-    assert html.count("Generate now") >= 2  # one button per panel (weekly and monthly)
+    assert "Generate now" not in html  # reports are made automatically; no manual button
     assert "<h1" in html and "Reflections" in html
     assert "Focus areas" in html and "No focus areas yet" in html
-    assert 'hx-post="/reflections/generate?kind=weekly"' in html
-    assert 'hx-post="/reflections/generate?kind=monthly"' in html
 
 
 def test_dashboard_shows_latest_reflection_with_quotes_and_dates(client, db_path):

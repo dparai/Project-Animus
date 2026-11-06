@@ -48,7 +48,7 @@ def test_ask_page_renders_and_nav_link(client):
     assert "Answers come only from your entries" in r.text
     assert 'hx-post="/ask"' in r.text
     assert 'href="/ask" aria-current="page"' in r.text  # desktop nav marks it
-    assert r.text.count('href="/ask"') == 1  # the mobile list hides the current page like the others
+    assert r.text.count('href="/ask"') == 2  # desktop nav and phone bar both list every page
     assert 'href="/ask"' in client.get("/memory").text
 
 
