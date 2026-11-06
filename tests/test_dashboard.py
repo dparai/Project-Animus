@@ -170,7 +170,7 @@ def test_focus_tick_done_and_reopen(client, db_path):
     fid = focus.add(c, "Go to the gym twice.", None, NOW)
     c.close()
     r = client.post(f"/focus/{fid}/status", data={"status": "done"})
-    assert r.status_code == 200 and 'id="focus"' in r.text and 'aria-checked="true"' in r.text
+    assert r.status_code == 200 and 'id="focus"' in r.text and '0 open, 1 done' in r.text  # a ticked item leaves the list
     c = db.connect(db_path)
     row = c.execute("SELECT status, completed_at FROM focus_areas WHERE id = ?", (fid,)).fetchone()
     assert row["status"] == "done" and row["completed_at"]

@@ -2,9 +2,9 @@
   {% if focus.rows %}
   <p class="hint num focus-count">{{ focus.open }} open{% if focus.done_count %}, {{ focus.done_count }} done{% endif %}</p>
   <ul class="focus-items">
-    {% for f in focus.rows %}
-    <li class="focus-item{% if f.done %} is-done{% endif %}" data-focus-id="{{ f.id }}">
-      <form method="post" action="/focus/{{ f.id }}/status" hx-post="/focus/{{ f.id }}/status" hx-target="#focus" hx-swap="outerHTML" hx-disabled-elt="find button">
+    {% for f in focus.rows if not f.done %}
+    <li class="focus-item" data-focus-id="{{ f.id }}">
+      <form method="post" action="/focus/{{ f.id }}/status" hx-post="/focus/{{ f.id }}/status" hx-target="#focus" hx-swap="outerHTML swap:500ms" hx-disabled-elt="find button">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="status" value="{{ 'active' if f.done else 'done' }}">
         <button type="submit" class="focus-btn" role="checkbox" aria-checked="{{ 'true' if f.done else 'false' }}">
@@ -19,6 +19,9 @@
     </li>
     {% endfor %}
   </ul>
+  {% if not focus.open %}
+  <div class="empty"><p class="empty-text">All done. New focus areas appear after your next weekly reflection.</p></div>
+  {% endif %}
   {% else %}
   <div class="empty"><p class="empty-text">No focus areas yet. They appear after your first weekly reflection.</p></div>
   {% endif %}

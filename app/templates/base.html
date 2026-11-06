@@ -136,8 +136,8 @@
     .topnav::-webkit-scrollbar { display: none; }
     .topnav .navlink, .topnav .logout { flex: none; white-space: nowrap; }
   </style>
-  <link rel="stylesheet" href="/static/theme.css?v=2">
-  <script src="/static/theme.js?v=2" defer></script>
+  <link rel="stylesheet" href="/static/theme.css?v=3">
+  <script src="/static/theme.js?v=3" defer></script>
   {% block head %}{% endblock %}
 </head>
 <body{% if csrf_token %} hx-headers='{{ {"X-CSRF-Token": csrf_token} | tojson }}'{% endif %}>
@@ -145,7 +145,7 @@
 {% block body %}
   <div class="shell">
     <nav class="side" aria-label="Main">
-      <div class="brand">Animus</div>
+      <a class="brand" href="/" aria-label="Animus, go to Write">Animus</a>
       <a class="navlink" href="/" {% if page == 'write' %}aria-current="page"{% endif %}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 13.5l.7-3L10.8 3a1.4 1.4 0 012 2l-7.6 7.6-2.7.9z"/></svg>Write
       </a>
@@ -173,7 +173,7 @@
     </nav>
     <div class="frame">
       <header class="topbar">
-        <span class="brand">Animus</span>
+        <a class="brand" href="/" aria-label="Animus, go to Write">Animus</a>
         <nav class="topnav" aria-label="Main">
           {% set items = [
             ('write', '/', 'Write', 'M2.5 13.5l.7-3L10.8 3a1.4 1.4 0 012 2l-7.6 7.6-2.7.9z'),

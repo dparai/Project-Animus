@@ -166,3 +166,8 @@ body .pat .tag { justify-self: start; }
 /* Log out is red: desktop sidebar and phone tab bar */
 body .logout .navlink { color: var(--negative); }
 body .logout .navlink:hover { color: #ffb0b7; background: rgba(255, 127, 138, 0.14); }
+
+/* The Animus name links to Write */
+body a.brand { color: var(--text); text-decoration: none; transition: opacity 180ms var(--ease); }
+body a.brand:hover { opacity: 0.8; }
+body .side a.brand { display: block; }
