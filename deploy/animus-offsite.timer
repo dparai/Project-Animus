@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Animus off-site copies
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=5min
+Persistent=true
+Unit=animus-offsite.service
+
+[Install]
+WantedBy=timers.target

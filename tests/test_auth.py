@@ -391,8 +391,8 @@ def _read_env(path):
 
 def test_set_password_script_writes_hash_and_secret_without_printing_them(tmp_path, capsys):
     env = tmp_path / ".env"
-    env.write_text("NVIDIA_API_KEY=fake-key-not-real\n# a comment\nANIMUS_SESSION_" "SECRET=old-secret-old-secret-old-secret-00\n"
-                   "ANIMUS_PASSWORD_" "HASH=stale\nNVIDIA_MODEL=fake/model\n", encoding="utf-8")
+    env.write_text("LLM_API_KEY=fake-key-not-real\n# a comment\nANIMUS_SESSION_" "SECRET=old-secret-old-secret-old-secret-00\n"
+                   "ANIMUS_PASSWORD_" "HASH=stale\nLLM_MODEL=fake/model\n", encoding="utf-8")
     os.chmod(env, 0o600)
     password = "a brand new fake passphrase"
     prompts, said = [], []
@@ -406,7 +406,7 @@ def test_set_password_script_writes_hash_and_secret_without_printing_them(tmp_pa
     assert len(prompts) == 2
     text = env.read_text(encoding="utf-8")
     lines = text.splitlines()
-    assert lines[:3] == ["NVIDIA_API_KEY=fake-key-not-real", "# a comment", "NVIDIA_MODEL=fake/model"]
+    assert lines[:3] == ["LLM_API_KEY=fake-key-not-real", "# a comment", "LLM_MODEL=fake/model"]
     values = _read_env(env)
     settings = auth.load_settings(values)
     assert settings.configured

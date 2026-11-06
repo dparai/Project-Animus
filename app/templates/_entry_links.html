@@ -1,0 +1,24 @@
+<div class="entry-links">
+  {% for l in e.links.confirmed %}
+  <p class="link-line">
+    <span class="link-label">{{ l.label }}</span>
+    <a class="textlink inline" href="#entry-{{ l.other_id }}">{{ l.date }}</a>
+    <span class="link-snippet">{{ l.snippet }}</span>
+    <button type="button" class="link-btn" hx-delete="/entries/{{ e.id }}/links/{{ l.id }}" hx-target="#entry-{{ e.id }}" hx-swap="outerHTML" aria-label="Remove link to entry from {{ l.date }}">Remove</button>
+  </p>
+  {% endfor %}
+  {% for l in e.links.suggested %}
+  <div class="link-suggest" role="group" aria-label="Suggested link to entry from {{ l.date }}">
+    <p class="link-line">
+      <span class="link-label">Suggested: {{ l.label|lower }}</span>
+      <span class="link-date">{{ l.date }}</span>
+      <span class="link-snippet">{{ l.snippet }}</span>
+    </p>
+    {% if l.reason %}<p class="link-reason">{{ l.reason }}</p>{% endif %}
+    <p class="link-actions">
+      <button type="button" class="link-btn link-yes" hx-post="/entries/{{ e.id }}/links/{{ l.id }}/confirm" hx-target="#entry-{{ e.id }}" hx-swap="outerHTML">Link them</button>
+      <button type="button" class="link-btn" hx-post="/entries/{{ e.id }}/links/{{ l.id }}/dismiss" hx-target="#entry-{{ e.id }}" hx-swap="outerHTML">Not related</button>
+    </p>
+  </div>
+  {% endfor %}
+</div>

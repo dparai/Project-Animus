@@ -17,7 +17,7 @@ SECRET = "fake chat text that must never be logged"
 
 @pytest.fixture(autouse=True)
 def no_env_key(monkeypatch):
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
 
 
 def chat(conn, user_messages, at, *, ended=False, replies=True):

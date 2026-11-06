@@ -19,7 +19,7 @@ def db_path(tmp_path):
 
 @pytest.fixture(autouse=True)
 def no_env_key(monkeypatch):
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
 
 
 def q(db_path, sql, params=()):

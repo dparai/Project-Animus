@@ -257,7 +257,7 @@ def test_no_retry_after_truncated_on_all_models(conn):
 
 
 class ModelLLM(FakeLLM):
-    """Records which model answered, like NvidiaClient.last_model."""
+    """Records which model answered, like LlmClient.last_model."""
     last_model = None
 
     def complete_json(self, system, user, **kw):

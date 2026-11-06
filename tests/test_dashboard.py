@@ -35,7 +35,7 @@ def client(db_path):
 
 @pytest.fixture(autouse=True)
 def no_env_key(monkeypatch):
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
 
 
 def today_local():
@@ -212,7 +212,7 @@ def test_generate_now_without_key_shows_no_key_message_and_creates_no_reflection
     r = client.post("/reflections/generate?kind=weekly")
     assert r.status_code == 200
     assert "No API key configured." in r.text
-    assert "NVIDIA_API_KEY" in r.text and ".env" in r.text
+    assert "LLM_API_KEY" in r.text and ".env" in r.text
     assert "hx-trigger" not in r.text
     assert counts(db_path) == (0, 0)  # no job row, no reflection
 

@@ -13,3 +13,6 @@ backups/
 *.db-journal
 vault.db-*
 data/
+
+# rclone config holds the Google Drive token and the backup encryption passwords
+rclone/

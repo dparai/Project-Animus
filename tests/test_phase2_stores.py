@@ -93,24 +93,24 @@ def test_job_unique_per_period(conn):
         conn.execute(sql)
 
 
-def test_nvidia_settings_default_base_url_and_missing_key(monkeypatch):
-    for k in ("NVIDIA_API_KEY", "NVIDIA_BASE_URL", "NVIDIA_MODEL"):
+def test_llm_settings_default_base_url_and_missing_key(monkeypatch):
+    for k in ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL"):
         monkeypatch.delenv(k, raising=False)
-    s = config.get_nvidia_settings()
+    s = config.get_llm_settings()
     assert s.api_key is None
     assert s.base_url == "https://integrate.api.nvidia.com/v1"
-    monkeypatch.setenv("NVIDIA_API_KEY", "fake-key")
-    monkeypatch.setenv("NVIDIA_BASE_URL", "https://example.test/v1")
-    monkeypatch.setenv("NVIDIA_MODEL", "fake/model")
-    s = config.get_nvidia_settings()
+    monkeypatch.setenv("LLM_API_KEY", "fake-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("LLM_MODEL", "fake/model")
+    s = config.get_llm_settings()
     assert (s.api_key, s.base_url, s.model) == ("fake-key", "https://example.test/v1", "fake/model")
-    monkeypatch.setenv("NVIDIA_API_KEY", "  ")
-    assert config.get_nvidia_settings().api_key is None
+    monkeypatch.setenv("LLM_API_KEY", "  ")
+    assert config.get_llm_settings().api_key is None
 
 
-def test_nvidia_settings_repr_hides_key(monkeypatch):
-    monkeypatch.setenv("NVIDIA_API_KEY", "fake-key-123")
-    s = config.get_nvidia_settings()
+def test_llm_settings_repr_hides_key(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "fake-key-123")
+    s = config.get_llm_settings()
     assert s.api_key == "fake-key-123"
     assert "fake-key-123" not in repr(s)
     assert "fake-key-123" not in str(s)

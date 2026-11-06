@@ -13,6 +13,9 @@ def fake_auth_env(monkeypatch):
     """
     monkeypatch.setenv("ANIMUS_PASSWORD_HASH", TEST_HASH.decode("ascii"))
     monkeypatch.setenv("ANIMUS_SESSION_SECRET", TEST_SECRET)
+    for prefix in ("LLM_", "NVIDIA_"):  # a real key in the shell must never reach tests
+        for name in ("API_KEY", "BASE_URL", "MODEL", "MODEL_INTERACTIVE", "MODEL_ESCALATE"):
+            monkeypatch.delenv(prefix + name, raising=False)
 
 
 @pytest.fixture

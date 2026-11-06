@@ -25,7 +25,7 @@ def client(db_path):
 
 @pytest.fixture(autouse=True)
 def no_env_key(monkeypatch):
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
 
 
 def notes(db_path, include_deleted=False):

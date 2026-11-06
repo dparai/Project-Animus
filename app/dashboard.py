@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from app import focus, jobs, memory, periods, reflections, stats, tz
 from app.moods import MOODS
 
-NO_KEY_HINT = "Add NVIDIA_API_KEY to the server's .env"
+NO_KEY_HINT = "Add LLM_API_KEY to the server's .env"
 NO_KEY_STATE = {"text": "No API key configured.", "tone": "warn", "poll": False, "hint": NO_KEY_HINT}
 STILL_WORKING_STATE = {"text": "Still working. Reload the page to check.", "tone": "warn", "poll": False, "hint": ""}
 MAX_POLLS = 60  # 60 polls x 3 s = about 3 minutes

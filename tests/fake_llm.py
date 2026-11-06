@@ -1,5 +1,5 @@
 class FakeLLM:
-    """Test double for NvidiaClient: records calls, returns queued dicts or raises queued exceptions."""
+    """Test double for LlmClient: records calls, returns queued dicts or raises queued exceptions."""
 
     def __init__(self, responses=None):
         self.responses = list(responses or [])

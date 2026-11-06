@@ -431,8 +431,8 @@ def test_focus_set_source(conn):
 
 def test_reflection_row_stores_model_that_answered(conn, three):
     import httpx
-    from app.config import NvidiaSettings
-    from app.llm import NvidiaClient
+    from app.config import LlmSettings
+    from app.llm import LlmClient
 
     def handler(request):
         model = json.loads(request.content)["model"]
@@ -440,7 +440,7 @@ def test_reflection_row_stores_model_that_answered(conn, three):
             return httpx.Response(503, text="busy")
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(good(three))}}]})
 
-    c = NvidiaClient(NvidiaSettings(api_key="k", base_url="https://example.test/v1",
+    c = LlmClient(LlmSettings(api_key="k", base_url="https://example.test/v1",
                                     model="vendor/first,vendor/second"),
                      transport=httpx.MockTransport(handler))
     rid = reflect.generate_weekly(conn, c, PERIOD, NOW)

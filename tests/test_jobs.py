@@ -177,7 +177,7 @@ def test_unexpected_error_reason_is_error_for_default_llmerror(conn, week):
 
 
 def test_non_retryable_marks_failed_immediately(conn, week):
-    llm = FakeLLM([LLMError("NVIDIA API request rejected (HTTP 400)", retryable=False)])
+    llm = FakeLLM([LLMError("LLM API request rejected (HTTP 400)", retryable=False)])
     jobs.run_pending(conn, llm, NOW)
     row = job(conn)
     assert row["status"] == "failed"
@@ -275,7 +275,7 @@ def test_run_pending_never_holds_open_transaction_during_llm_call(conn, week):
 
 
 def test_app_without_key_starts_and_job_stays_pending_with_no_key_message(tmp_path, monkeypatch):
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
     path = str(tmp_path / "app.db")
     app = create_app(path, llm=None, start_scheduler=False)
     assert app.state.llm is None and app.state.db_path == path

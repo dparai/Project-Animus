@@ -15,7 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import ask, config, counselor, dashboard, db, entries, focus, jobs, memory, reflections, tz
+from app import ask, config, counselor, dashboard, db, embeddings, entries, focus, jobs, links, memory, reflections, tz
 from app import auth as authn
 from app.limits import LoginLimiter
 from app.csrf import CsrfMiddleware
@@ -63,7 +63,7 @@ def _greeting(hour: int) -> str:
     return "Good evening"
 
 
-def _entry_view(row, zone: str) -> dict:
+def _entry_view(row, zone: str, conn=None) -> dict:
     """Template-ready entry, sentence case.
 
     The day is the entry's own local_date (fixed when it was written, never recomputed);
@@ -77,11 +77,12 @@ def _entry_view(row, zone: str) -> dict:
     return {
         "id": row["id"],
         "created_at": row["created_at"],
-        "when": f"{day:%A} {day.day} {day:%B}{year}, {local:%H:%M}",
+        "when": f"{day:%A} {day.day} {day:%B}{year}, {local:%-I:%M %p}",
         "text": row["text"],
         "mood": MOOD_BY_KEY.get(row["mood"]),
         "energy": row["energy_score"],
         "energy_approx": bool(row["energy_is_approximate"]),
+        "links": links.links_for_entry(conn, row["id"]) if conn is not None else None,
     }
 
 
@@ -348,7 +349,7 @@ def create_app(
                 "moods": MOODS,
                 "greeting": _greeting(now.hour),
                 "date_line": f"{now:%A} {now.day} {now:%B}",
-                "clock": f"{now:%H:%M}",
+                "clock": f"{now:%-I:%M %p}",
                 "page": "write",
             },
         )
@@ -356,6 +357,7 @@ def create_app(
     @app.post("/entries")
     async def save_entry(
         request: Request,
+        background: BackgroundTasks,
         text: str = Form(""),
         mood: str = Form(""),
         energy: str = Form(""),
@@ -363,7 +365,7 @@ def create_app(
     ):
         try:
             _check_length(text)
-            entries.create_entry(
+            new_id = entries.create_entry(
                 conn,
                 text=text,
                 mood=mood or None,
@@ -373,6 +375,8 @@ def create_app(
             )
         except ValueError as exc:
             return error(request, _friendly(exc))
+        if app.state.llm is not None or config.get_llm_settings().api_key is not None:
+            background.add_task(_suggest_links, app.state.db_path, app.state.llm, new_id)
         return templates.TemplateResponse(request, "_saved.html", {})
 
     def _load(conn, entry_id: int):
@@ -380,6 +384,39 @@ def create_app(
         if row is None:
             raise HTTPException(status_code=404, detail="Entry not found")
         return row
+
+    def _suggest_links(db_path: str, llm, entry_id: int) -> None:
+        """Background task: own connection, own LLM client; failures are swallowed inside."""
+        bg = db.connect(db_path)
+        try:
+            links.suggest_for_entry(bg, jobs.resolve_llm(llm), entry_id,
+                                    getattr(app.state, "embedder", None) or embeddings.Embedder())
+        finally:
+            bg.close()
+
+    @app.post("/entries/{entry_id}/links/{link_id}/confirm")
+    async def link_confirm(request: Request, entry_id: int, link_id: int, conn=Depends(get_conn)):
+        _load(conn, entry_id)
+        if not links.set_status(conn, entry_id, link_id, "confirmed"):
+            raise HTTPException(status_code=404, detail="Link not found")
+        return templates.TemplateResponse(
+            request, "_entry_row.html", {"e": _entry_view(_load(conn, entry_id), tz.get_timezone(conn), conn)})
+
+    @app.post("/entries/{entry_id}/links/{link_id}/dismiss")
+    async def link_dismiss(request: Request, entry_id: int, link_id: int, conn=Depends(get_conn)):
+        _load(conn, entry_id)
+        if not links.set_status(conn, entry_id, link_id, "dismissed"):
+            raise HTTPException(status_code=404, detail="Link not found")
+        return templates.TemplateResponse(
+            request, "_entry_row.html", {"e": _entry_view(_load(conn, entry_id), tz.get_timezone(conn), conn)})
+
+    @app.delete("/entries/{entry_id}/links/{link_id}")
+    async def link_remove(request: Request, entry_id: int, link_id: int, conn=Depends(get_conn)):
+        _load(conn, entry_id)
+        if not links.remove(conn, entry_id, link_id):
+            raise HTTPException(status_code=404, detail="Link not found")
+        return templates.TemplateResponse(
+            request, "_entry_row.html", {"e": _entry_view(_load(conn, entry_id), tz.get_timezone(conn), conn)})
 
     @app.get("/entries")
     async def entries_page(request: Request, before: str | None = None, conn=Depends(get_conn)):
@@ -389,7 +426,7 @@ def create_app(
         has_more = len(rows) > LIST_LIMIT
         rows = rows[:LIST_LIMIT]
         context = {
-            "rows": [_entry_view(r, zone) for r in rows],
+            "rows": [_entry_view(r, zone, conn) for r in rows],
             "next_cursor": f"{rows[-1]['created_at']}_{rows[-1]['id']}" if has_more else None,
             "paged": cursor is not None,
             "page": "entries",
@@ -401,7 +438,7 @@ def create_app(
     async def entry_row(request: Request, entry_id: int, conn=Depends(get_conn)):
         row = _load(conn, entry_id)
         return templates.TemplateResponse(
-            request, "_entry_row.html", {"e": _entry_view(row, tz.get_timezone(conn))}
+            request, "_entry_row.html", {"e": _entry_view(row, tz.get_timezone(conn), conn)}
         )
 
     def _edit_form(request, conn, row, *, text, mood, energy, message=None, status_code=200):
@@ -409,7 +446,7 @@ def create_app(
             request,
             "_entry_edit.html",
             {
-                "e": _entry_view(row, tz.get_timezone(conn)),
+                "e": _entry_view(row, tz.get_timezone(conn), conn),
                 "moods": MOODS,
                 "form_text": text,
                 "form_mood": mood,
@@ -448,7 +485,7 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "_entry_row.html",
-            {"e": _entry_view(entries.get_entry(conn, entry_id), tz.get_timezone(conn))},
+            {"e": _entry_view(entries.get_entry(conn, entry_id), tz.get_timezone(conn), conn)},
         )
 
     @app.delete("/entries/{entry_id}")
@@ -483,7 +520,7 @@ def create_app(
         request: Request, background: BackgroundTasks, kind: str = "", conn=Depends(get_conn)
     ):
         _kind(kind)
-        if app.state.llm is None and config.get_nvidia_settings().api_key is None:
+        if app.state.llm is None and config.get_llm_settings().api_key is None:
             return _status_fragment(request, kind, dashboard.NO_KEY_STATE)  # no job, no API call
         now = datetime.now(timezone.utc)
         job_id = jobs.request_now(conn, kind, now)
@@ -621,7 +658,7 @@ def create_app(
     def _local_when(ts: str, zone: str) -> str:
         utc = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         local = utc.astimezone(ZoneInfo(zone))
-        return f"{local:%a} {local.day} {local:%b}, {local:%H:%M}"
+        return f"{local:%a} {local.day} {local:%b}, {local:%-I:%M %p}"
 
     def _chat_messages(conn, conv_id: int) -> list[dict]:
         msgs = counselor.messages(conn, conv_id)

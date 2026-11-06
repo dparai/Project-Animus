@@ -32,9 +32,9 @@ After loading `/` and `/entries` (nothing saved):
 
 ## Phase 3: Ask and Counselor
 
-Pages: `/ask` (Ask My Journal) and `/counselor` (chat). Both need the NVIDIA key in `.env`; without it they show a calm "no API key" message and nothing breaks.
+Pages: `/ask` (Ask My Journal) and `/counselor` (chat). Both need `LLM_API_KEY` in `.env`; without it they show a calm "no API key" message and nothing breaks.
 
-What goes to NVIDIA:
+What goes to your LLM provider:
 
 - Ask: your question plus the best 8 matching entries (text, date, mood, energy). Nothing is stored; the answer is shown once.
 - Counselor: your recent chat messages (last 20), your 4 most relevant entries (chosen from your last 3 messages), and your memory notes. The chat itself is stored in the local database.
@@ -119,3 +119,56 @@ Do this only when you decide to expose Animus beyond an SSH tunnel. The app stay
    Caddy does not send HSTS by default, so the header line is explicit. Start with the short `max-age` above; do not add `includeSubDomains` or `preload`.
 
 3. Check with `caddy validate --config /etc/caddy/Caddyfile`, reload Caddy yourself, then confirm `curl -sI https://<YOUR_DOMAIN>/login` shows the HSTS header and that an unknown Host is answered with 400 or no certificate.
+
+## Off-site copies on Google Drive
+
+Every night at 04:00 (after the 03:30 backup) the `animus-offsite` job makes two copies in your Google Drive, using `rclone`:
+
+- **Readable:** your journal entries only (no reflections, chats or memory notes), one Google Doc per month, named `Animus Journal YYYY-MM`, in the Drive folder `Animus Journal`. The first run writes every month; later runs only refresh the current and previous month.
+- **Encrypted:** the VM's nightly database backups, mirrored to the Drive folder `Animus Backup` and encrypted before they leave the VM (file names too). Drive keeps the same 14 daily + 8 weekly copies as the VM. The job refuses to delete more than 5 files in one run, and refuses to sync at all if the VM has no backups.
+
+### One-time setup (you do this; the assistant never sees the token or passphrase)
+
+1. On your PC (with a browser), install rclone and run `rclone authorize "drive"`. Sign in to Google when asked. It prints a token blob; copy it.
+2. On the VM, create the config folder and start the wizard as the `animus` user:
+
+        sudo install -d -m 700 -o animus -g animus /opt/animus/rclone
+        sudo -u animus RCLONE_CONFIG=/opt/animus/rclone/rclone.conf rclone config
+
+3. `n` (new remote), name `gdrive`, type `drive`. Leave client id and secret empty. Scope: choose `drive.file` (access only to files rclone itself creates, nothing else in your Drive). Answer `n` to "Use web browser to automatically authenticate" and paste the token from step 1 when asked. Not a Shared Drive.
+4. `n` again, name `gdrive-crypt`, type `crypt`. Remote to encrypt: `gdrive:Animus Backup`. Filename encryption: `standard`. Directory name encryption: `true`. Password: choose `y` (type in your own) and enter a long passphrase of your own; do the same for the second (salt) password. Quit the wizard.
+5. Lock the config file and check it:
+
+        sudo chown animus:animus /opt/animus/rclone/rclone.conf
+        sudo chmod 600 /opt/animus/rclone/rclone.conf
+        sudo -u animus RCLONE_CONFIG=/opt/animus/rclone/rclone.conf rclone lsd gdrive:
+
+   The config holds your Drive access and the (obscured) encryption passwords. Never share it, paste it anywhere, or commit it.
+
+**Store the passphrase and the salt password in your password manager now.** Without them the encrypted backups cannot be read by anyone, including you, and the config file on the VM will not help if the VM is lost.
+
+### Install the timer
+
+    sudo cp /opt/animus/deploy/animus-offsite.service /opt/animus/deploy/animus-offsite.timer /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now animus-offsite.timer
+    sudo systemctl start animus-offsite.service      # first run now (every month is exported)
+    systemctl list-timers animus-offsite.timer
+    journalctl -u animus-offsite -n 5 --no-pager
+
+The log shows `docs_uploaded=N` and `backups_synced`, or a reason code: `rclone_missing`, `docs_failed`, `backup_sync_failed`, `backup_dir_empty`, `unexpected`. It never contains entry text. If one half fails the other still runs and the service ends with an error. The unit has network access (IPv4/IPv6) but no other privileges; it reads `backups/` read-only and writes only the rclone config (token refresh) and a small state file, `data/offsite_state.json`, which records that the first full export is done. It does not read `.env`. Defaults can be overridden with `ANIMUS_RCLONE_DOCS_REMOTE` (`gdrive:Animus Journal`) and `ANIMUS_RCLONE_BACKUP_REMOTE` (`gdrive-crypt:`).
+
+### Check for duplicate Docs after the first authorised run (controller step)
+
+The readable copy relies on rclone's HTML import (`--drive-import-formats html --drive-export-formats html`; rclone refuses the upload unless the export format matches), which converts each file to a Google Doc and should update the same Doc on the next run. After the owner has authorised Drive, run `animus-offsite.service` a second time and list the folder (`rclone lsl "gdrive:Animus Journal"`, as `animus` with `RCLONE_CONFIG` set). There must be exactly one Doc per month. If duplicates appear, switch the readable copy to plain `.md` files uploaded without import conversion (still readable in Drive's previewer and any editor) and delete the duplicates in Drive by hand.
+
+### Restore from the encrypted copy
+
+1. List and fetch the backup you want; decryption happens through the crypt remote (run as `animus` with `RCLONE_CONFIG` set):
+
+        rclone ls gdrive-crypt:
+        rclone copy gdrive-crypt:animus-<YYYYMMDD-HHMMSS>.db <RESTORE_FOLDER>/
+
+   On a new machine, recreate the two remotes with the same Drive login and **the same passphrase and salt password**, then run the same commands.
+2. Check the copy: `sqlite3 <RESTORE_FOLDER>/animus-<YYYYMMDD-HHMMSS>.db "select count(*) from entries"`.
+3. Stop the app (`sudo systemctl stop animus`), keep the old file (`mv data/vault.db data/vault.db.old`), put the copy at `/opt/animus/data/vault.db` (owner `animus`, mode 600), delete any stale `vault.db-wal` / `vault.db-shm`, then `sudo systemctl start animus`.

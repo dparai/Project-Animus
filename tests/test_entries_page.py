@@ -53,7 +53,7 @@ def test_list_shows_entries_newest_first(client, db_path):
 def test_list_shows_local_date_and_time_in_stored_timezone(client, db_path):
     _add(db_path, "evening", "2026-10-31T01:32:00")  # 18:32 Pacific on Friday 30 October
     html = client.get("/entries").text
-    assert "Friday 30 October, 18:32" in html
+    assert "Friday 30 October, 6:32 PM" in html
 
 
 def test_list_shows_mood_and_energy_honestly(client, db_path):
@@ -280,4 +280,4 @@ def test_list_prefers_stored_local_date_over_derived_day(client, db_path):
               ("2026-10-31T01:32:15Z", "2026-10-29", "odd local date"))
     c.commit(); c.close()
     html = client.get("/entries").text
-    assert "Thursday 29 October, 18:32" in html
+    assert "Thursday 29 October, 6:32 PM" in html

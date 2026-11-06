@@ -7,7 +7,7 @@ Animus is one FastAPI process serving server-rendered Jinja2 pages with HTMX for
 | Module | Role |
 | --- | --- |
 | `app/main.py` | app factory, routes, middleware wiring, scheduler start |
-| `app/config.py` | environment settings (database path, allowed hosts, NVIDIA endpoint and models) |
+| `app/config.py` | environment settings (database path, allowed hosts, LLM endpoint and models) |
 | `app/db.py` | schema, connection (WAL, foreign keys), small in-place migrations |
 | `app/auth.py`, `app/limits.py` | bcrypt login, signed session cookie, in-memory login rate limit |
 | `app/csrf.py`, `app/security.py`, `app/headers.py` | CSRF, cross-site guard, CSP and other headers, request body limit |

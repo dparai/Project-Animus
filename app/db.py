@@ -103,6 +103,33 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, id);
+
+CREATE TABLE IF NOT EXISTS entry_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    to_entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    link_type TEXT NOT NULL CHECK (link_type IN ('related','follow_up','recurrence','correction')),
+    source TEXT NOT NULL CHECK (source IN ('owner','ai')),
+    status TEXT NOT NULL CHECK (status IN ('suggested','confirmed','dismissed')),
+    reason TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    UNIQUE (from_entry_id, to_entry_id),
+    CHECK (from_entry_id <> to_entry_id)
+);
+
+CREATE INDEX IF NOT EXISTS entry_links_to ON entry_links(to_entry_id);
+
+CREATE TABLE IF NOT EXISTS entry_embeddings (
+    entry_id INTEGER PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS entry_embeddings_stale AFTER UPDATE OF text ON entries BEGIN
+    DELETE FROM entry_embeddings WHERE entry_id = new.id;
+END;
 """
 
 

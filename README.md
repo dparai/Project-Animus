@@ -2,7 +2,7 @@
 
 A private, single-user AI journal you run yourself. Write daily entries with mood and energy, and get weekly and monthly AI reflections that quote your own words back to you. Ask questions about your journal, or talk with a counselor-style chat that builds a slow, editable memory. It is built to run on one small server for one person.
 
-Stack: Python 3.12, FastAPI, Jinja2 templates, HTMX, Tailwind, SQLite with full-text search. The language model is reached through an OpenAI-compatible API (NVIDIA-hosted Nemotron models by default).
+Stack: Python 3.12, FastAPI, Jinja2 templates, HTMX, Tailwind, SQLite with full-text search. The language model is reached through any OpenAI-compatible API (NVIDIA-hosted Nemotron models by default; Google Gemini and others work too).
 
 ## Not a therapist, not medical advice
 
@@ -20,18 +20,18 @@ Animus is a journaling tool, not a therapist, doctor or crisis service. The Coun
 
 ## Privacy
 
-- When you use the AI features, journal text is sent to the NVIDIA API (or whatever endpoint you set in `NVIDIA_BASE_URL`). Specifically:
+- When you use the AI features, journal text is sent to your LLM provider (NVIDIA API by default, or whatever endpoint you set in `LLM_BASE_URL`). Specifically:
   - Reflections: the entries of the week or month being reflected on, plus your memory notes.
   - Ask: your question and the best 8 matching entries (text, date, mood, energy).
   - Counselor: your recent chat messages, a few relevant entries, and your memory notes. When a chat ends, its text is sent once to write the memory notes.
 - Everything else stays on your server: the database, backups, login and sessions. Without an API key no text leaves your server and the AI pages show a notice.
 - No analytics and no third-party scripts. HTMX, the Tailwind script and the fonts are served locally from `app/static/`, and the Content-Security-Policy only allows your own origin.
-- Read the NVIDIA API terms before sending anything personal. If that is not acceptable, do not set a key, or point `NVIDIA_BASE_URL` at a provider you trust.
+- Read your LLM provider's terms before sending anything personal. If that is not acceptable, do not set a key, or point `LLM_BASE_URL` at a provider you trust.
 
 ## Requirements
 
 - Python 3.12
-- An NVIDIA API key for the AI features (get one at [build.nvidia.com](https://build.nvidia.com)); the journal itself works without one.
+- An API key for an OpenAI-compatible LLM provider for the AI features (the default is NVIDIA, get a key at [build.nvidia.com](https://build.nvidia.com)); the journal itself works without one.
 - For production: a Linux host with systemd and a reverse proxy such as Caddy for HTTPS (see `deploy/README.md`).
 
 ## Quick start (local)
@@ -39,7 +39,7 @@ Animus is a journaling tool, not a therapist, doctor or crisis service. The Coun
     python -m venv .venv
     .venv/bin/pip install -r requirements.txt        # Windows: .venv\Scripts\pip
     cp .env.example .env && chmod 600 .env
-    # edit .env and set NVIDIA_API_KEY=...
+    # edit .env and set LLM_API_KEY=...
     .venv/bin/python -c "from scripts import set_password as s; raise SystemExit(s.main('.env'))"
     set -a; . ./.env; set +a                         # the app reads real environment variables, not .env itself
     .venv/bin/uvicorn --factory app.main:create_app --host 127.0.0.1 --port 8100
@@ -68,11 +68,23 @@ Environment variables (put them in `.env`; see `.env.example`):
 | `ANIMUS_BACKUP_DIR` | `backups/` next to the code | where `scripts.backup` writes copies |
 | `ANIMUS_ALLOWED_HOSTS` | empty | extra comma-separated host names to answer to (no scheme, port or wildcard); `localhost` and `127.0.0.1` are always allowed |
 | `ANIMUS_SCHEDULER` | `on` | `off` or `0` disables the background reflection and memory scheduler |
-| `NVIDIA_API_KEY` | none | API key; without it the AI pages show a notice |
-| `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint |
-| `NVIDIA_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b,nvidia/nemotron-3.5-lightning-30b-a3b` | comma-separated priority list for background reflections |
-| `NVIDIA_MODEL_INTERACTIVE` | same list as above | priority list for Ask, Counselor and chat memory |
-| `NVIDIA_MODEL_ESCALATE` | `nvidia/nemotron-3-ultra-550b-a55b` | model Ask retries with when the first attempt finds nothing |
+| `LLM_API_KEY` | none | API key; without it the AI pages show a notice |
+| `LLM_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint |
+| `LLM_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b,nvidia/nemotron-3.5-lightning-30b-a3b` | comma-separated priority list for background reflections |
+| `LLM_MODEL_INTERACTIVE` | same list as above | priority list for Ask, Counselor and chat memory |
+| `LLM_MODEL_ESCALATE` | `nvidia/nemotron-3-ultra-550b-a55b` | model Ask retries with when the first attempt finds nothing |
+
+Any OpenAI-compatible endpoint works. Example for Google Gemini:
+
+    LLM_API_KEY=...
+    LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+    LLM_MODEL=gemini-3.6-flash,gemini-3.5-flash
+    LLM_MODEL_INTERACTIVE=gemini-3.6-flash,gemini-3.5-flash
+    LLM_MODEL_ESCALATE=gemini-3.6-flash
+
+### Migrating from `NVIDIA_*` names
+
+The settings were renamed from `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NVIDIA_MODEL`, `NVIDIA_MODEL_INTERACTIVE` and `NVIDIA_MODEL_ESCALATE` to the `LLM_*` names above. The old names still work: each `LLM_*` variable is read first and the matching `NVIDIA_*` one is used only when it is unset, so an existing `.env` needs no change.
 
 ## Backups and import
 

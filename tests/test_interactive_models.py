@@ -5,8 +5,8 @@ import httpx
 import pytest
 
 from app import ask, chat_memory, config, counselor, prompts
-from app.config import NvidiaSettings
-from app.llm import LLMError, NvidiaClient, interactive_models
+from app.config import LlmSettings
+from app.llm import LLMError, LlmClient, interactive_models
 from tests.fake_llm import FakeLLM
 
 FAST, BIG = "nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/nemotron-3-ultra-550b-a55b"
@@ -22,8 +22,8 @@ def client(handlers, model="d/one,d/two"):
         asked.append(m)
         return handlers[m]
 
-    s = NvidiaSettings(api_key="k", base_url="https://example.test/v1", model=model)
-    return NvidiaClient(s, transport=httpx.MockTransport(handler)), asked
+    s = LlmSettings(api_key="k", base_url="https://example.test/v1", model=model)
+    return LlmClient(s, transport=httpx.MockTransport(handler)), asked
 
 
 def good():
@@ -56,10 +56,10 @@ def test_override_truncated_only_falls_through_for_interactive_calls():
 
 
 def test_default_interactive_order_is_strong_first(monkeypatch):
-    monkeypatch.delenv("NVIDIA_MODEL_INTERACTIVE", raising=False)
-    assert config.get_nvidia_settings().interactive_models == (BIG, FAST)
+    monkeypatch.delenv("LLM_MODEL_INTERACTIVE", raising=False)
+    assert config.get_llm_settings().interactive_models == (BIG, FAST)
     assert interactive_models() == (BIG, FAST)
-    assert config.parse_models(config.DEFAULT_NVIDIA_MODEL)[0] == BIG  # background order unchanged
+    assert config.parse_models(config.DEFAULT_LLM_MODEL)[0] == BIG  # background order unchanged
 
 
 @pytest.mark.parametrize("value,expected", [
@@ -69,19 +69,19 @@ def test_default_interactive_order_is_strong_first(monkeypatch):
     (" , ,", (BIG, FAST)),
 ])
 def test_env_parsing(monkeypatch, value, expected):
-    monkeypatch.setenv("NVIDIA_MODEL_INTERACTIVE", value)
-    assert config.get_nvidia_settings().interactive_models == expected
+    monkeypatch.setenv("LLM_MODEL_INTERACTIVE", value)
+    assert config.get_llm_settings().interactive_models == expected
 
 
 def test_env_does_not_change_background_models(monkeypatch):
-    monkeypatch.setenv("NVIDIA_MODEL_INTERACTIVE", "a/x")
-    monkeypatch.setenv("NVIDIA_MODEL", "b/y")
-    s = config.get_nvidia_settings()
+    monkeypatch.setenv("LLM_MODEL_INTERACTIVE", "a/x")
+    monkeypatch.setenv("LLM_MODEL", "b/y")
+    s = config.get_llm_settings()
     assert s.models == ("b/y",) and s.interactive_models == ("a/x",)
 
 
 def test_ask_counselor_and_summary_pass_interactive_list(conn, monkeypatch):
-    monkeypatch.setenv("NVIDIA_MODEL_INTERACTIVE", "a/x,b/y")
+    monkeypatch.setenv("LLM_MODEL_INTERACTIVE", "a/x,b/y")
     conn.execute("INSERT INTO entries(created_at, local_date, text) VALUES (?,?,?)",
                  ("2026-10-10T12:00:00+00:00", "2026-10-10", "walked along the river and felt calm"))
     conn.commit()
@@ -114,9 +114,9 @@ def test_ask_prompt_trims_entries_to_1500(conn):
 
 def test_escalation_model_default_and_env(monkeypatch):
     from app.llm import escalation_model
-    monkeypatch.delenv("NVIDIA_MODEL_ESCALATE", raising=False)
+    monkeypatch.delenv("LLM_MODEL_ESCALATE", raising=False)
     assert escalation_model() == BIG
-    monkeypatch.setenv("NVIDIA_MODEL_ESCALATE", " a/x , b/y")
+    monkeypatch.setenv("LLM_MODEL_ESCALATE", " a/x , b/y")
     assert escalation_model() == "a/x"
-    monkeypatch.setenv("NVIDIA_MODEL_ESCALATE", " , ")
+    monkeypatch.setenv("LLM_MODEL_ESCALATE", " , ")
     assert escalation_model() == BIG

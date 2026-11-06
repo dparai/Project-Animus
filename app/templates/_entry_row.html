@@ -7,6 +7,7 @@
     </p>
   </div>
   <p class="entry-text">{{ e.text }}</p>
+  {% if e.links and (e.links.confirmed or e.links.suggested) %}{% include "_entry_links.html" %}{% endif %}
   <div class="entry-actions">
     <button type="button" class="act" hx-get="/entries/{{ e.id }}/edit" hx-target="#entry-{{ e.id }}" hx-swap="outerHTML" aria-label="Edit entry from {{ e.when }}">Edit</button>
     <button type="button" class="act" hx-delete="/entries/{{ e.id }}" hx-confirm="Delete this entry?" hx-target="#entry-{{ e.id }}" hx-swap="outerHTML" aria-label="Delete entry from {{ e.when }}">Delete</button>

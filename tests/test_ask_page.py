@@ -21,7 +21,7 @@ def client(db_path):
 
 @pytest.fixture(autouse=True)
 def no_env_key(monkeypatch):
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
 
 
 TEXT = "Today I finally finished the mural for the cafe and felt really proud of it."

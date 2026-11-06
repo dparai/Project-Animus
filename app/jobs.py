@@ -222,9 +222,9 @@ def run_pending(conn: sqlite3.Connection, llm, now: datetime, *,
 def resolve_llm(llm):
     if llm is not None:
         return llm
-    from app.llm import NvidiaClient  # built per run so a key added to .env is picked up
+    from app.llm import LlmClient  # built per run so a key added to .env is picked up
 
-    return NvidiaClient(config.get_nvidia_settings())
+    return LlmClient(config.get_llm_settings())
 
 
 def run_job(db_path: str, llm, job_id: int, now: datetime | None = None) -> bool:

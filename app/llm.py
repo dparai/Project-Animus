@@ -4,7 +4,7 @@ import re
 
 import httpx
 
-from app.config import NvidiaSettings, get_nvidia_settings, parse_models
+from app.config import LlmSettings, get_llm_settings, parse_models
 
 log = logging.getLogger("animus.llm")
 
@@ -67,24 +67,24 @@ _INTERACTIVE_FALLBACK_REASONS = _FALLBACK_REASONS | {"truncated"}
 
 
 def escalation_model() -> str:
-    """The strongest interactive model, the only one Ask escalates to (NVIDIA_MODEL_ESCALATE)."""
-    return get_nvidia_settings().escalation_model
+    """The strongest interactive model, the only one Ask escalates to (LLM_MODEL_ESCALATE)."""
+    return get_llm_settings().escalation_model
 
 
 def interactive_models() -> tuple[str, ...]:
-    """Model order for calls a person is waiting on (NVIDIA_MODEL_INTERACTIVE; strong model first)."""
-    return get_nvidia_settings().interactive_models
+    """Model order for calls a person is waiting on (LLM_MODEL_INTERACTIVE; strong model first)."""
+    return get_llm_settings().interactive_models
 
 
-class NvidiaClient:
-    def __init__(self, settings: NvidiaSettings, *, transport: httpx.BaseTransport | None = None):
+class LlmClient:
+    def __init__(self, settings: LlmSettings, *, transport: httpx.BaseTransport | None = None):
         self._settings = settings
         self._transport = transport
         self.last_model: str | None = None  # the model that answered the latest successful call
         self._no_thinking_kwarg: set[str] = set()  # models that rejected chat_template_kwargs
 
     def __repr__(self) -> str:
-        return f"NvidiaClient(base_url={self._settings.base_url!r}, model={self._settings.model!r})"
+        return f"LlmClient(base_url={self._settings.base_url!r}, model={self._settings.model!r})"
 
     def complete_json(self, system: str, user: str, *, max_tokens: int = 4096,
                       read_timeout: float | None = None,
@@ -147,32 +147,32 @@ class NvidiaClient:
             with httpx.Client(transport=self._transport, timeout=timeout) as http:
                 resp = http.post(url, json=body, headers=headers)
         except httpx.TimeoutException:
-            raise LLMError("request to NVIDIA API timed out", retryable=True, reason="timeout") from None
+            raise LLMError("request to LLM API timed out", retryable=True, reason="timeout") from None
         except httpx.TransportError:
-            raise LLMError("could not reach NVIDIA API", retryable=True, reason="unreachable") from None
+            raise LLMError("could not reach LLM API", retryable=True, reason="unreachable") from None
         except httpx.RequestError:
-            raise LLMError("unreadable response from NVIDIA API", retryable=False, reason="bad_shape") from None
+            raise LLMError("unreadable response from LLM API", retryable=False, reason="bad_shape") from None
 
         status = resp.status_code
         if status == 408 or status == 429 or status >= 500:
             reason = "http_5xx" if status >= 500 else f"http_{status}"
-            raise LLMError(f"NVIDIA API temporary error (HTTP {status})", retryable=True, reason=reason)
+            raise LLMError(f"LLM API temporary error (HTTP {status})", retryable=True, reason=reason)
         if status >= 400:
             reason = f"http_{status}" if status in (401, 403, 404) else "http_4xx"
-            raise LLMError(f"NVIDIA API request rejected (HTTP {status})", retryable=False, reason=reason,
+            raise LLMError(f"LLM API request rejected (HTTP {status})", retryable=False, reason=reason,
                            status=status)
         try:
             choice = resp.json()["choices"][0]
             content = choice["message"].get("content")
             finish = choice.get("finish_reason")
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
-            raise LLMError("unexpected response shape from NVIDIA API", retryable=False, reason="bad_shape") from None
+            raise LLMError("unexpected response shape from LLM API", retryable=False, reason="bad_shape") from None
         truncated = finish == "length"
         if not isinstance(content, str):
             if content is None or truncated:
                 content = ""
             else:
-                raise LLMError("unexpected response shape from NVIDIA API", retryable=False, reason="bad_shape")
+                raise LLMError("unexpected response shape from LLM API", retryable=False, reason="bad_shape")
         try:
             return extract_json_object(content)
         except LLMError:

@@ -30,7 +30,7 @@
   .list-region { position: relative; flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--radius-card); scrollbar-color: var(--control) transparent; scrollbar-width: thin; }
 
   .entries { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  .entry { display: grid; grid-template-areas: "head actions" "text text"; grid-template-columns: 1fr auto; gap: 4px 8px; min-height: var(--row-height); box-sizing: border-box; padding: 12px 8px 12px 16px; background: var(--surface); border-radius: 16px; }
+  .entry { display: grid; grid-template-areas: "head actions" "text text" "links links"; grid-template-columns: 1fr auto; gap: 4px 8px; min-height: var(--row-height); box-sizing: border-box; padding: 12px 8px 12px 16px; background: var(--surface); border-radius: 16px; }
   .entry-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; min-width: 0; padding-top: 2px; }
   .entry-when { font-weight: 500; }
   .entry-meta { color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; }
@@ -42,6 +42,22 @@
   .act:hover { background: var(--raised); color: var(--text); }
   .act:active { transform: scale(.97); }
   .act:disabled { opacity: .6; cursor: progress; }
+
+  .entry-links { grid-area: links; display: grid; gap: 8px; padding: 4px 8px 0 0; font-size: 13px; line-height: 20px; }
+  .entry-links:empty { display: none; }
+  .link-line, .link-reason, .link-actions { margin: 0; }
+  .link-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+  .link-label { color: var(--accent); font-weight: 500; }
+  .link-date { color: var(--text); }
+  .link-snippet { color: var(--muted); overflow-wrap: anywhere; }
+  .link-reason { color: var(--muted); }
+  .link-suggest { display: grid; gap: 4px; padding: 8px 12px; background: var(--raised); border-radius: 12px; }
+  .link-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .link-btn { min-height: 44px; padding: 0 14px; border: 1px solid var(--control); border-radius: var(--radius-control); background: transparent; color: var(--muted); font: inherit; cursor: pointer; transition: background 160ms ease, color 160ms ease, transform 160ms ease; }
+  .link-btn:hover { background: var(--surface); color: var(--text); }
+  .link-btn:active { transform: scale(.97); }
+  .link-yes { color: var(--text); }
+  @media (prefers-reduced-motion: reduce) { .link-btn { transition: none; } .link-btn:active { transform: none; } }
 
   .empty { background: var(--surface); border-radius: 16px; padding: 24px 20px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; }
   .empty[hidden] { display: none; }

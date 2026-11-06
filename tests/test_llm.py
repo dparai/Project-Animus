@@ -4,14 +4,14 @@ import logging
 import httpx
 import pytest
 
-from app.config import NvidiaSettings
-from app.llm import LLMError, NvidiaClient
+from app.config import LlmSettings
+from app.llm import LLMError, LlmClient
 
 KEY = "nvapi" + "-SECRET-KEY-123"
 
 
 def settings(key=KEY):
-    return NvidiaSettings(api_key=key, base_url="https://example.test/v1", model="m")
+    return LlmSettings(api_key=key, base_url="https://example.test/v1", model="m")
 
 
 def chat(content):
@@ -19,7 +19,7 @@ def chat(content):
 
 
 def client(handler, key=KEY):
-    return NvidiaClient(settings(key), transport=httpx.MockTransport(handler))
+    return LlmClient(settings(key), transport=httpx.MockTransport(handler))
 
 
 def test_returns_parsed_json():
@@ -285,7 +285,7 @@ SENTINEL = "SENTINEL-ENTRY-TEXT"
 
 
 def multi_settings(models=f"{M1},{M2}", key=KEY):
-    return NvidiaSettings(api_key=key, base_url="https://example.test/v1", model=models)
+    return LlmSettings(api_key=key, base_url="https://example.test/v1", model=models)
 
 
 def run_models(responses, models=f"{M1},{M2}", key=KEY):
@@ -300,7 +300,7 @@ def run_models(responses, models=f"{M1},{M2}", key=KEY):
             raise r
         return r
 
-    return NvidiaClient(multi_settings(models, key), transport=httpx.MockTransport(handler)), asked
+    return LlmClient(multi_settings(models, key), transport=httpx.MockTransport(handler)), asked
 
 
 def ok(content='{"a": 2}'):
@@ -326,7 +326,7 @@ def test_models_parsed_from_comma_list_with_whitespace_and_duplicates():
     assert s.models == ("a/b", "c/d")
     assert s.model == " a/b , c/d,a/b"
     assert KEY not in repr(s)
-    assert config.parse_models(config.DEFAULT_NVIDIA_MODEL) == (
+    assert config.parse_models(config.DEFAULT_LLM_MODEL) == (
         "nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nemotron-3.5-lightning-30b-a3b")
 
 
