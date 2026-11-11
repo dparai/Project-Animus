@@ -1,8 +1,9 @@
+import json
 import re
 import unicodedata
 from datetime import datetime, timezone
 
-from . import focus, memory, periods, prompts, reflections
+from . import extract, focus, memory, periods, prompts, reflections
 from .llm import LLMError
 from .periods import Period
 
@@ -183,7 +184,55 @@ def _pick(value, allowed: tuple, default: str) -> str:
     return value if isinstance(value, str) and value in allowed else default
 
 
-def _patterns(value, limit: int, weeks: set | None = None) -> list[dict]:
+_SINCE = ("done", "ongoing", "not_done", "came_true", "did_not_happen", "unclear")
+
+
+def _since_last(value, limit: int = 8) -> list[dict]:
+    out = []
+    for item in _list(value):
+        text = _short(item.get("item"), 200) if isinstance(item, dict) else ""
+        if text:
+            out.append({"item": text, "status": _pick(item.get("status"), _SINCE, "unclear"),
+                        "note": _short(item.get("note"), 300)})
+    return out[:limit]
+
+
+def _evidence(item: dict, by_id: dict) -> list[dict]:
+    """A pattern's quotes that are word for word in the entry they name (at most 2)."""
+    out = []
+    for ev in _list(item.get("evidence")):
+        if not isinstance(ev, dict):
+            continue
+        entry = by_id.get(_int(ev.get("entry_id")))
+        quote = _match_quote(_str(ev.get("quote")), entry["text"]) if entry is not None else None
+        if quote is not None:
+            out.append({"quote": quote, "entry_id": entry["id"], "date": entry["local_date"]})
+    return out[:2]
+
+
+def previous_report(conn, kind: str, period) -> dict | None:
+    """Open items of the latest report of this kind that ended before `period` starts."""
+    row = conn.execute(
+        "SELECT period_key, content FROM reflections WHERE kind = ? AND is_latest = 1 AND period_end < ?"
+        " ORDER BY period_end DESC, version DESC LIMIT 1",
+        (kind, period.start.isoformat()),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        content = json.loads(row["content"])
+    except ValueError:
+        return None
+    if not isinstance(content, dict):
+        return None
+    focus_items = content.get("focus") if kind == "weekly" else content.get("focus_next")
+    return {"label": row["period_key"],
+            "improve": [i for i in _list(content.get("improve")) if isinstance(i, dict)][:5],
+            "worries": [w for w in _list(content.get("worries")) if isinstance(w, dict)][:5],
+            "focus": [f for f in _list(focus_items) if isinstance(f, dict)][:5]}
+
+
+def _patterns(value, limit: int, weeks: set | None = None, by_id: dict | None = None) -> list[dict]:
     out = []
     for item in _list(value):
         if not isinstance(item, dict):
@@ -198,6 +247,9 @@ def _patterns(value, limit: int, weeks: set | None = None) -> list[dict]:
             if not keep:
                 continue
             row["weeks"] = keep
+        if by_id is not None:
+            row["evidence"] = _evidence(item, by_id)
+            row["backed"] = bool(row["evidence"])
         out.append(row)
     return out[:limit]
 
@@ -261,7 +313,8 @@ def weekly_extra(raw, entries) -> dict:
         "v": 2,
         "summary_lines": _lines(raw.get("summary"), 5),
         "overall_feel": _short(raw.get("overall_feel"), 600),
-        "patterns": _patterns(raw.get("patterns"), 8),
+        "patterns": _patterns(raw.get("patterns"), 8, by_id=by_id),
+        "since_last": _since_last(raw.get("since_last")),
         "triggers": triggers[:5],
         "worries": _worries(raw.get("worries"), 5),
         "improve": _improve(raw.get("improve"), 3),
@@ -312,7 +365,9 @@ def generate_weekly(conn, llm, period: Period, now: datetime) -> int | None:
     short = len(entries) < 3
     active = [f for f in focus.list_all(conn) if f["status"] in ("active", "failing")]
     system = prompts.weekly_system()
-    user = prompts.weekly_user(entries, memory.list_active(conn), active, short)
+    counted = extract.numbers(conn, entries)
+    user = prompts.weekly_user(entries, memory.list_active(conn), active, short,
+                               previous=previous_report(conn, "weekly", period), counted=counted)
 
     live_ids = {f["id"] for f in active}
     status_by_id = {f["id"]: f["status"] for f in active}
@@ -368,6 +423,7 @@ def generate_weekly(conn, llm, period: Period, now: datetime) -> int | None:
             "entry_count": len(entries),  # what the model saw, fixed at generation time
             "covers_through": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             **weekly_extra(chosen, entries),
+            "numbers": counted,
         }
         rid = reflections.save(
             conn, kind="weekly", period_key=period.key,
@@ -466,14 +522,20 @@ def generate_monthly(conn, llm, period: Period, now: datetime) -> int | None:
     short = len(weeks) < 2
     active = [f for f in focus.list_all(conn) if f["status"] in ("active", "failing")]
     system = prompts.monthly_system()
-    user = prompts.monthly_user(weeks, memory.list_active(conn), active, short)
+    month_entries = periods.entries_for(conn, period)
+    counted = extract.numbers(conn, month_entries)
+    user = prompts.monthly_user(weeks, memory.list_active(conn), active, short,
+                                previous=previous_report(conn, "monthly", period), counted=counted,
+                                facts=extract.digest(conn, month_entries))
 
     raw, _, _ = _ask(llm, system, user, MONTHLY_CALLS, FIRST_TOKENS)
     cleaned, dropped = _clean_monthly(raw, week_keys)
     unverified = not cleaned["patterns"] and not cleaned["summary"]
     if unverified:
         cleaned = {"summary": "", "patterns": [], "focus_next": []}
-    extra = monthly_extra(raw, week_keys, periods.entries_for(conn, period))
+    extra = monthly_extra(raw, week_keys, month_entries)
+    extra["since_last"] = _since_last(raw.get("since_last") if isinstance(raw, dict) else None)
+    extra["numbers"] = counted
     content = {**cleaned, **extra, "weeks_used": week_keys, "short": short,
                "dropped": dropped, "unverified": unverified}
     with conn:  # single transaction, matching generate_weekly

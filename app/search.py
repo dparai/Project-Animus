@@ -4,6 +4,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from . import embeddings
+
 STOP_WORDS = frozenset("""
 a about after again all also am an and any are as at be because been before being but by can
 could did do does doing down for from had has have having he her here hers him his how i if in
@@ -174,3 +176,54 @@ def find_entries(conn: sqlite3.Connection, question: str, today: date, limit: in
         if extra["id"] not in seen:
             rows.append(extra)
     return rows
+
+
+RRF_K = 60  # reciprocal rank fusion constant: the usual value, flattens the two lists' ranks
+LINKED_EXTRA = 2  # confirmed-linked entries added after the fused list
+
+
+def _linked(conn: sqlite3.Connection, ids: list[int], have: set, limit: int) -> list[int]:
+    """Entries one confirmed link away from the best results (story follow-ups), best first."""
+    out: list[int] = []
+    for entry_id in ids:
+        for r in conn.execute(
+            "SELECT from_entry_id AS a, to_entry_id AS b FROM entry_links"
+            " WHERE status = 'confirmed' AND (from_entry_id = ? OR to_entry_id = ?) ORDER BY id",
+            (entry_id, entry_id),
+        ):
+            other = r["b"] if r["a"] == entry_id else r["a"]
+            if other not in have and other not in out:
+                out.append(other)
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def find_entries_hybrid(conn: sqlite3.Connection, question: str, today: date, limit: int = 8,
+                        qvec=None) -> list[sqlite3.Row]:
+    """Keyword search and meaning search fused by rank, then entries linked to the best hits.
+
+    Without a question vector (no key, embedding failed) this is exactly `find_entries`."""
+    limit = max(1, min(50, limit))
+    keyword = find_entries(conn, question, today, min(50, limit * 2))
+    if qvec is None:
+        return keyword[:limit]
+    hints = parse_hints(question, today)
+    meaning = [i for i, _ in embeddings.search_entries(conn, qvec, limit * 2, hints.date_from, hints.date_to)]
+    if hints.date_from and len(meaning) < limit:  # like the keyword search: fill from outside the dates
+        meaning += [i for i, _ in embeddings.search_entries(conn, qvec, limit * 2) if i not in meaning]
+    if not meaning:
+        return keyword[:limit]
+    score: dict[int, float] = {}
+    for ranked in ([r["id"] for r in keyword], meaning):
+        for rank, entry_id in enumerate(ranked):
+            score[entry_id] = score.get(entry_id, 0.0) + 1.0 / (RRF_K + rank + 1)
+    order = sorted(score, key=lambda i: -score[i])[:limit]
+    order += _linked(conn, order[:3], set(order), LINKED_EXTRA)
+    rows = {r["id"]: r for r in keyword}
+    missing = [i for i in order if i not in rows]
+    if missing:
+        marks = ",".join("?" * len(missing))
+        for r in conn.execute(f"SELECT * FROM entries WHERE id IN ({marks})", missing):
+            rows[r["id"]] = r
+    return [rows[i] for i in order if i in rows]

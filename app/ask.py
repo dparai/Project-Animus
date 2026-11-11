@@ -58,11 +58,17 @@ class AskResult:
     model: str | None = None
 
 
-def prepare(conn, question: str, today: date) -> AskContext:
+def clean_question(question) -> str:
+    """The question as it will be searched and asked; ValueError when empty or too long."""
     question = _norm(question or "")
     if not question or len(question) > QUESTION_MAX:
         raise ValueError("question")
-    rows = search.find_entries(conn, question, today, TOP_ENTRIES)
+    return question
+
+
+def prepare(conn, question: str, today: date, qvec=None) -> AskContext:
+    question = clean_question(question)
+    rows = search.find_entries_hybrid(conn, question, today, TOP_ENTRIES, qvec)
     entries = tuple(
         {"id": r["id"], "local_date": r["local_date"], "text": r["text"],
          "mood": r["mood"], "energy_score": r["energy_score"]}

@@ -63,7 +63,7 @@
     <h3 id="h-pat-{{ r.id }}" class="r-sec-title">Patterns found ({{ v.patterns | length }})</h3>
     <ul class="pat-list">
       {% for p in v.patterns %}
-      <li class="pat"><span class="tag tag-{{ p.kind }}">{{ p.label }}</span><span class="pat-text">{{ p.text }}</span></li>
+      <li class="pat"><span class="tag tag-{{ p.kind }}">{{ p.label }}</span><span class="pat-text">{{ p.text }}{% for ev in p.evidence or [] %} <span class="imp-why">&ldquo;{{ ev.quote }}&rdquo; ({{ ev.date }})</span>{% endfor %}{% if p.backed is defined and not p.backed %} <span class="imp-why">(no exact quote found for this one)</span>{% endif %}</span></li>
       {% endfor %}
     </ul>
   </section>
@@ -140,6 +140,24 @@
   <section class="r-sec" aria-labelledby="h-hw-{{ r.id }}">
     <h3 id="h-hw-{{ r.id }}" class="r-sec-title">Wins you may have missed</h3>
     <ul class="plain-list">{% for w in v.hidden_wins %}<li>{{ w }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
+  {% if v.since_last %}
+  <section class="r-sec" aria-labelledby="h-since-{{ r.id }}">
+    <h3 id="h-since-{{ r.id }}" class="r-sec-title">Since the last report</h3>
+    <ul class="pat-list">
+      {% for s in v.since_last %}
+      <li class="pat"><span class="tag tag-{{ 'strength' if s.status in ('done', 'did_not_happen') else ('risk' if s.status in ('not_done', 'came_true') else 'link') }}">{{ s.status | replace('_', ' ') }}</span><span class="pat-text">{{ s.item }}{% if s.note %} <span class="imp-why">{{ s.note }}</span>{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if v.numbers and v.numbers.people %}
+  <section class="r-sec" aria-labelledby="h-num-{{ r.id }}">
+    <h3 id="h-num-{{ r.id }}" class="r-sec-title">Counted from your entries</h3>
+    <p class="pat-text">{{ v.numbers.entries }} entries on {{ v.numbers.days }} days, {{ v.numbers.words }} words. Mentioned: {% for p in v.numbers.people %}{{ p.name }} ({{ p.count }}){{ ", " if not loop.last else "." }}{% endfor %}</p>
   </section>
   {% endif %}
 

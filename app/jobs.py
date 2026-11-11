@@ -268,6 +268,26 @@ def _reflection_tick(db_path: str, llm, now: datetime) -> list[int]:
         _run_lock.release()
 
 
+def upkeep_tick(db_path: str, llm) -> None:
+    """Catch-up work after each scheduler pass: vectors and facts for new or edited entries and
+    vectors for memory notes. Small batches; any failure waits for the next pass."""
+    from . import config, embeddings, extract  # lazy: keeps this module light for the tests
+
+    conn = connect(db_path)
+    try:
+        if config.get_llm_settings().api_key is not None:
+            embedder = embeddings.Embedder()
+            try:
+                embeddings.fill_missing(conn, embedder)
+                embeddings.fill_missing_notes(conn, embedder)
+            except LLMError as exc:
+                log.info("upkeep embeddings failed reason=%s", exc.reason)
+        if extract.missing_count(conn):
+            extract.fill_missing(conn, resolve_llm(llm))
+    finally:
+        conn.close()
+
+
 async def scheduler_loop(db_path: str, llm, interval_seconds: float = 300,
                          stop_event: asyncio.Event | None = None,
                          startup_delay: float = STARTUP_DELAY_SECONDS) -> None:
@@ -287,5 +307,9 @@ async def scheduler_loop(db_path: str, llm, interval_seconds: float = 300,
             await asyncio.to_thread(scheduler_tick, db_path, llm)
         except Exception as exc:
             log.warning("scheduler tick failed: %s", type(exc).__name__)
+        try:
+            await asyncio.to_thread(upkeep_tick, db_path, llm)
+        except Exception as exc:
+            log.warning("upkeep failed: %s", type(exc).__name__)
         if await stopped_within(interval_seconds):
             return

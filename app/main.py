@@ -16,7 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import ask, config, counselor, dashboard, db, embeddings, entries, focus, jobs, links, memory, reflections, tz
+from app import ask, config, counselor, dashboard, db, embeddings, entries, extract, focus, jobs, links, memory, reflections, tz
 from app import auth as authn
 from app.limits import LoginLimiter
 from app.csrf import CsrfMiddleware
@@ -391,6 +391,16 @@ def create_app(
             background.add_task(_suggest_links, app.state.db_path, app.state.llm, new_id)
         return templates.TemplateResponse(request, "_saved.html", {})
 
+    def _embedder():
+        """The embedder for question vectors: an injected one, else the real one when a key is
+        set and no test client is in place. None means keyword search only."""
+        injected = getattr(app.state, "embedder", None)
+        if injected is not None:
+            return injected
+        if app.state.llm is None and config.get_llm_settings().api_key is not None:
+            return embeddings.Embedder()
+        return None
+
     def _load(conn, entry_id: int):
         row = entries.get_entry(conn, entry_id)
         if row is None:
@@ -401,8 +411,11 @@ def create_app(
         """Background task: own connection, own LLM client; failures are swallowed inside."""
         bg = db.connect(db_path)
         try:
-            links.suggest_for_entry(bg, jobs.resolve_llm(llm), entry_id,
+            client = jobs.resolve_llm(llm)
+            links.suggest_for_entry(bg, client, entry_id,
                                     getattr(app.state, "embedder", None) or embeddings.Embedder())
+            if llm is None:  # the real client only: a test double has no reply queued for this
+                extract.fill_missing(bg, client, limit=1)
         finally:
             bg.close()
 
@@ -687,7 +700,8 @@ def create_app(
         zone = tz.get_timezone(conn)
         today = datetime.now(timezone.utc).astimezone(ZoneInfo(zone)).date()
         try:
-            ctx = ask.prepare(conn, question, today)  # on the request connection, before the thread
+            qvec = await asyncio.to_thread(embeddings.embed_query, _embedder(), ask.clean_question(question))
+            ctx = ask.prepare(conn, question, today, qvec)  # on the request connection, before the thread
         except ValueError:
             return error(request, "Type a question first (up to 500 characters).")
         # Slow network call off the event loop; no database connection is used inside the thread.
@@ -712,7 +726,8 @@ def create_app(
         zone = tz.get_timezone(conn)
         today = datetime.now(timezone.utc).astimezone(ZoneInfo(zone)).date()
         try:
-            ctx = ask.prepare(conn, question, today)
+            qvec = await asyncio.to_thread(embeddings.embed_query, _embedder(), ask.clean_question(question))
+            ctx = ask.prepare(conn, question, today, qvec)
         except ValueError:
             return error(request, "Type a question first (up to 500 characters).")
         llm = jobs.resolve_llm(app.state.llm)
@@ -855,7 +870,9 @@ def create_app(
                         "kind": "info", "text": "There is nothing waiting for a reply."})
             zone = tz.get_timezone(conn)
             today = datetime.now(timezone.utc).astimezone(ZoneInfo(zone)).date()
-            ctx = counselor.prepare(conn, conv_id, today)  # on the request connection, before the thread
+            qvec = await asyncio.to_thread(
+                embeddings.embed_query, _embedder(), counselor.query_text(conn, conv_id))
+            ctx = counselor.prepare(conn, conv_id, today, qvec)  # on the request connection, before the thread
             # Slow network call off the event loop; no database connection is used inside the thread.
             result = await asyncio.to_thread(counselor.reply, jobs.resolve_llm(app.state.llm), ctx)
             counselor.save_reply(conn, conv_id, result, datetime.now(timezone.utc))

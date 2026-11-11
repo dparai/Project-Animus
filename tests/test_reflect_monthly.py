@@ -111,7 +111,7 @@ def test_monthly_saved_with_period_key_yyyy_mm(conn, october):
     c = stored(conn, rid)
     assert set(c) == {"summary", "patterns", "focus_next", "weeks_used", "short", "dropped", "unverified",
                       "v", "summary_lines", "triggers", "worries", "recap", "focus_progress", "hidden_wins",
-                      "improve", "questions", "by_day"}
+                      "improve", "questions", "by_day", "since_last", "numbers"}
     assert c["short"] is False and c["unverified"] is False
     assert c["focus_next"] == [{"text": "Fix a gym time."}]
 

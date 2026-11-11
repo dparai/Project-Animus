@@ -155,7 +155,7 @@ def test_retry_skipped_after_time_budget(conn, monkeypatch):
 
 
 def test_long_entry_truncated_in_prompt_only(conn):
-    eid = add(conn, "river " + "x" * 2500 + " tailmarker words here")
+    eid = add(conn, "river " + "x" * (prompts.ASK_ENTRY_CHARS + 500) + " tailmarker words here")
     ctx = ask.prepare(conn, "river", TODAY)
     llm = FakeLLM([reply(eid, "tailmarker words here")])
     res = ask.answer(llm, ctx)

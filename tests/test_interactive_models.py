@@ -100,15 +100,16 @@ def test_ask_counselor_and_summary_pass_interactive_list(conn, monkeypatch):
     assert llm.calls[0]["models"] == ("a/x", "b/y")
 
 
-def test_ask_prompt_trims_entries_to_1500(conn):
-    assert prompts.ASK_ENTRY_CHARS == 1500
-    text = "a" * 1499 + "b" + "c" * 400
+def test_ask_prompt_trims_entries_to_the_limit(conn):
+    limit = prompts.ASK_ENTRY_CHARS
+    assert limit == 4000
+    text = "a" * (limit - 1) + "b" + "c" * 400
     conn.execute("INSERT INTO entries(created_at, local_date, text) VALUES (?,?,?)",
                  ("2026-10-10T12:00:00+00:00", "2026-10-10", text))
     conn.commit()
     rows = conn.execute("SELECT id, local_date, text FROM entries").fetchall()
     out = prompts.ask_user("q", rows)
-    assert "a" * 1499 + "b" in out
+    assert "a" * (limit - 1) + "b" in out
     assert "b" + "c" not in out
 
 

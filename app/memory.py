@@ -29,9 +29,12 @@ def add_note(
     return cur.lastrowid
 
 
-def list_active(conn: sqlite3.Connection, limit: int = PROMPT_LIMIT) -> list[sqlite3.Row]:
+def list_active(conn: sqlite3.Connection, limit: int = PROMPT_LIMIT, qvec=None) -> list[sqlite3.Row]:
     """The notes sent to the AI: active corrections first (newest first, at most
-    PROMPT_CORRECTIONS), then other notes (newest first) filling the rest up to `limit`."""
+    PROMPT_CORRECTIONS), then other notes (newest first) filling the rest up to `limit`.
+
+    With a question vector and more notes than fit, the notes closest in meaning to the
+    question are the ones kept (still shown newest first)."""
     corrections = conn.execute(
         "SELECT * FROM ai_memory WHERE deleted_at IS NULL AND kind = 'correction'"
         " ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -42,6 +45,18 @@ def list_active(conn: sqlite3.Connection, limit: int = PROMPT_LIMIT) -> list[sql
         " ORDER BY created_at DESC, id DESC LIMIT ?",
         (max(0, limit - len(corrections)),),
     ).fetchall()
+    if qvec is not None and notes:
+        from . import embeddings  # lazy: memory stays importable without the HTTP stack
+
+        every = conn.execute(
+            "SELECT id FROM ai_memory WHERE deleted_at IS NULL AND kind != 'correction'"
+        ).fetchall()
+        if len(every) > len(notes):
+            keep = embeddings.rank_notes(conn, qvec, [r["id"] for r in every])[:len(notes)]
+            marks = ",".join("?" * len(keep))
+            notes = conn.execute(
+                f"SELECT * FROM ai_memory WHERE id IN ({marks}) ORDER BY created_at DESC, id DESC", keep
+            ).fetchall()
     return corrections + notes
 
 

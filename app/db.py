@@ -66,7 +66,9 @@ CREATE TABLE IF NOT EXISTS ai_memory (
     claim_id TEXT NULL,
     created_at TEXT NOT NULL,
     deleted_at TEXT NULL,
-    conversation_id INTEGER NULL
+    conversation_id INTEGER NULL,
+    superseded_by INTEGER NULL,
+    source_entry_ids TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS reflection_jobs (
@@ -130,6 +132,47 @@ CREATE TABLE IF NOT EXISTS entry_embeddings (
 CREATE TRIGGER IF NOT EXISTS entry_embeddings_stale AFTER UPDATE OF text ON entries BEGIN
     DELETE FROM entry_embeddings WHERE entry_id = new.id;
 END;
+
+CREATE TABLE IF NOT EXISTS vectors (
+    kind TEXT NOT NULL CHECK (kind IN ('chunk','memory')),
+    ref_id INTEGER NOT NULL,
+    part INTEGER NOT NULL DEFAULT 0,
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (kind, ref_id, part)
+);
+
+CREATE TRIGGER IF NOT EXISTS vectors_entry_stale AFTER UPDATE OF text ON entries BEGIN
+    DELETE FROM vectors WHERE kind = 'chunk' AND ref_id = new.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS vectors_entry_gone AFTER DELETE ON entries BEGIN
+    DELETE FROM vectors WHERE kind = 'chunk' AND ref_id = old.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS vectors_note_stale AFTER UPDATE OF text, deleted_at ON ai_memory BEGIN
+    DELETE FROM vectors WHERE kind = 'memory' AND ref_id = new.id;
+END;
+
+CREATE TABLE IF NOT EXISTS entry_facts (
+    entry_id INTEGER PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE,
+    data TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS entry_facts_stale AFTER UPDATE OF text ON entries BEGIN
+    DELETE FROM entry_facts WHERE entry_id = new.id;
+END;
+
+CREATE TABLE IF NOT EXISTS people (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    aliases TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -149,6 +192,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     columns = {r[1] for r in conn.execute("PRAGMA table_info(ai_memory)")}
     if "conversation_id" not in columns:  # database created before conversation summaries
         conn.execute("ALTER TABLE ai_memory ADD COLUMN conversation_id INTEGER NULL")
+    if "superseded_by" not in columns:  # database created before notes could replace older ones
+        conn.execute("ALTER TABLE ai_memory ADD COLUMN superseded_by INTEGER NULL")
+        conn.execute("ALTER TABLE ai_memory ADD COLUMN source_entry_ids TEXT NOT NULL DEFAULT '[]'")
     columns = {r[1] for r in conn.execute("PRAGMA table_info(conversations)")}
     if "summary_attempts" not in columns:  # database created before summary retries were counted
         conn.execute("ALTER TABLE conversations ADD COLUMN summary_attempts INTEGER NOT NULL DEFAULT 0")

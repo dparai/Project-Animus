@@ -190,7 +190,17 @@ def messages(conn, conv_id: int) -> list[dict]:
 
 # --- prepare (DB reads only) ---------------------------------------------------
 
-def prepare(conn, conv_id: int, today: date) -> CounselorContext:
+def query_text(conn, conv_id: int) -> str:
+    """The owner's latest messages joined: what the journal is searched for."""
+    owner = conn.execute(
+        "SELECT text FROM messages WHERE conversation_id = ? AND role = 'user'"
+        " ORDER BY id DESC LIMIT ?",
+        (conv_id, QUERY_MESSAGES),
+    ).fetchall()
+    return " ".join(r["text"] for r in reversed(owner))
+
+
+def prepare(conn, conv_id: int, today: date, qvec=None) -> CounselorContext:
     if _conversation(conn, conv_id) is None:
         raise ValueError("conversation")
     rows = conn.execute(
@@ -205,7 +215,7 @@ def prepare(conn, conv_id: int, today: date) -> CounselorContext:
     ).fetchall()
     answering_id = owner[0]["id"] if owner else None
     query = " ".join(r["text"] for r in reversed(owner))
-    found = search.find_entries(conn, query, today, limit=TOP_ENTRIES) if query else []
+    found = search.find_entries_hybrid(conn, query, today, TOP_ENTRIES, qvec) if query else []
     entries = tuple(
         {"id": r["id"], "local_date": r["local_date"], "text": r["text"],
          "mood": r["mood"], "energy_score": r["energy_score"]}
@@ -214,7 +224,7 @@ def prepare(conn, conv_id: int, today: date) -> CounselorContext:
     notes = tuple(
         {"kind": n["kind"], "text": n["text"], "created_at": n["created_at"],
          "conversation_id": n["conversation_id"]}
-        for n in memory.list_active(conn)
+        for n in memory.list_active(conn, qvec=qvec)
     )
     return CounselorContext(history=history, entries=entries, notes=notes,
                             low_mood=mood_streak.low_mood_hint(conn, today),

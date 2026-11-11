@@ -9,6 +9,7 @@ into at most MERGE_MAX notes (originals soft deleted). Correction notes are neve
 Journal safety: logs hold only conversation ids, counts, statuses and reason codes. Never chat
 text, notes, prompts or model output.
 """
+import json
 import logging
 import re
 import sqlite3
@@ -52,6 +53,7 @@ class SummaryResult:
     notes: tuple = ()
     ok: bool = True
     reason: str = ""
+    replaces: tuple = ()  # ids of older notes these notes make outdated
 
 
 def clean_notes(raw, limit: int) -> tuple | None:
@@ -114,12 +116,31 @@ def conversation_messages(conn: sqlite3.Connection, conv_id: int) -> list[dict]:
 
 # --- summarize (pure) ------------------------------------------------------------------------
 
-def summarize(llm, messages) -> SummaryResult:
+def active_notes(conn: sqlite3.Connection) -> list[dict]:
+    """The automatic notes now in memory (newest first), offered so new notes can replace them."""
+    rows = conn.execute(
+        "SELECT id, text FROM ai_memory WHERE kind = 'note' AND deleted_at IS NULL"
+        " ORDER BY created_at DESC, id DESC LIMIT ?",
+        (NOTE_CAP + MERGE_BATCH,),
+    ).fetchall()
+    return [{"id": r["id"], "text": r["text"]} for r in rows]
+
+
+def _replaces(raw, existing) -> tuple:
+    allowed = {n["id"] for n in existing or ()}
+    out = []
+    for item in raw if isinstance(raw, list) else ():
+        if isinstance(item, int) and not isinstance(item, bool) and item in allowed and item not in out:
+            out.append(item)
+    return tuple(out)
+
+
+def summarize(llm, messages, existing=None) -> SummaryResult:
     """Ask the model for up to MAX_NOTES notes about the owner. No database access.
     An empty list is a valid result; errors come back as ok=False with a reason code."""
     history = [{"role": m["role"], "text": str(m["text"])[:MESSAGE_CHARS]} for m in messages]
     try:
-        raw = llm.complete_json(prompts.chat_summary_system(), prompts.chat_summary_user(history),
+        raw = llm.complete_json(prompts.chat_summary_system(), prompts.chat_summary_user(history, existing),
                                 max_tokens=SUMMARY_TOKENS, read_timeout=READ_TIMEOUT,
                                 models=interactive_models())
     except LLMError as exc:
@@ -129,13 +150,29 @@ def summarize(llm, messages) -> SummaryResult:
     notes = clean_notes(raw.get("notes") if isinstance(raw, dict) else None, MAX_NOTES)
     if notes is None:
         return SummaryResult(ok=False, reason="invalid_output")
-    return SummaryResult(notes=notes)
+    replaces = _replaces(raw.get("replaces"), existing) if notes else ()
+    return SummaryResult(notes=notes, replaces=replaces)
 
 
 # --- store -----------------------------------------------------------------------------------
 
+def _cited_entries(conn, conv_id: int) -> str:
+    """JSON list of the entry ids the listener drew on in this chat (the notes' sources)."""
+    ids: list[int] = []
+    for r in conn.execute(
+        "SELECT cited_entry_ids FROM messages WHERE conversation_id = ? AND role = 'assistant'", (conv_id,)
+    ):
+        try:
+            for i in json.loads(r["cited_entry_ids"] or "[]"):
+                if isinstance(i, int) and not isinstance(i, bool) and i not in ids:
+                    ids.append(i)
+        except ValueError:
+            continue
+    return json.dumps(ids[:20])
+
+
 def store(conn: sqlite3.Connection, conv_id: int, notes, now: datetime,
-          last_message_at: str | None = None) -> int:
+          last_message_at: str | None = None, replaces=()) -> int:
     """One transaction: mark the conversation summarized, soft delete the notes an earlier
     summary of it produced, and add the new ones; or nothing at all. With `last_message_at`
     (read before the model call) nothing is stored when a newer message arrived meanwhile, so the
@@ -154,10 +191,22 @@ def store(conn: sqlite3.Connection, conv_id: int, notes, now: datetime,
             " AND deleted_at IS NULL",
             (ts, conv_id),
         )
-        conn.executemany(
-            "INSERT INTO ai_memory(kind, text, conversation_id, created_at) VALUES ('note', ?, ?, ?)",
-            [(text, conv_id, ts) for text in notes],
-        )
+        sources = _cited_entries(conn, conv_id)
+        first = None
+        for text in notes:
+            cur = conn.execute(
+                "INSERT INTO ai_memory(kind, text, conversation_id, created_at, source_entry_ids)"
+                " VALUES ('note', ?, ?, ?, ?)",
+                (text, conv_id, ts, sources),
+            )
+            first = first or cur.lastrowid
+        if first is not None:
+            # An older note the new ones contradict or update is retired, with a pointer to why.
+            conn.executemany(
+                "UPDATE ai_memory SET deleted_at = ?, superseded_by = ? WHERE id = ? AND kind = 'note'"
+                " AND deleted_at IS NULL",
+                [(ts, first, nid) for nid in replaces],
+            )
     return len(notes)
 
 
@@ -276,7 +325,7 @@ def _run(conn, llm, now: datetime) -> list[int]:
             continue
         client = client or resolve_llm(llm)
         calls += 1
-        result = summarize(client, conversation_messages(conn, conv_id))
+        result = summarize(client, conversation_messages(conn, conv_id), active_notes(conn))
         if not result.ok:
             if result.reason == "no_key":
                 log.warning("conversation summary id=%s status=failed reason=no_key", conv_id)
@@ -284,7 +333,8 @@ def _run(conn, llm, now: datetime) -> list[int]:
             status = "gave_up" if record_failure(conn, conv_id, now) else "failed"
             log.warning("conversation summary id=%s status=%s reason=%s", conv_id, status, result.reason)
             continue
-        added = store(conn, conv_id, result.notes, now, last_message_at=row["last_message_at"])
+        added = store(conn, conv_id, result.notes, now, last_message_at=row["last_message_at"],
+                      replaces=result.replaces)
         stored = conn.execute(
             "SELECT summarized_at FROM conversations WHERE id = ?", (conv_id,)
         ).fetchone()

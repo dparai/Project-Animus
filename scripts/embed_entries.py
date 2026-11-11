@@ -24,6 +24,8 @@ def main(argv=None) -> int:
         if done == 0:
             break
         print(f"embedded {total} so far", flush=True)
+    notes = embeddings.fill_missing_notes(conn, embedder, limit=500)
+    print(f"memory notes embedded: {notes}")
     remaining = conn.execute(
         "SELECT COUNT(*) FROM entries e LEFT JOIN entry_embeddings v ON v.entry_id = e.id WHERE v.entry_id IS NULL"
     ).fetchone()[0]
