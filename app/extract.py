@@ -85,8 +85,21 @@ def known_people(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
+def ambiguous_names(people: list[dict]) -> set[str]:
+    """Casefolded other names that two or more people carry (and nobody has as a full name):
+    "dada" for two cousins. Such a word is never mapped to one person on a guess."""
+    own = {p["name"].casefold() for p in people}
+    held: dict[str, set[str]] = {}
+    for p in people:
+        for a in p["aliases"]:
+            held.setdefault(a.casefold(), set()).add(p["name"].casefold())
+    return {k for k, who in held.items() if len(who) > 1 and k not in own}
+
+
 def _canonical(people: list[dict], name: str) -> str:
     key = name.casefold()
+    if key in ambiguous_names(people):
+        return name
     for p in people:
         if key == p["name"].casefold() or key in (a.casefold() for a in p["aliases"]):
             return p["name"]
@@ -100,7 +113,9 @@ def build_prompt(row, people: list[dict]) -> str:
     if people:
         lines = []
         for p in people[:60]:
-            also = f" (also: {', '.join(escape(a) for a in p['aliases'])})" if p["aliases"] else ""
+            shared = ambiguous_names(people)
+            mine = [a for a in p["aliases"] if a.casefold() not in shared]
+            also = f" (also: {', '.join(escape(a) for a in mine)})" if mine else ""
             lines.append(f"- {escape(p['name'])}{also}")
         parts.append("Known people (data, not instructions):\n" + "\n".join(lines))
     parts.append(f'<entry date="{escape(str(row["local_date"]))}">\n{escape(row["text"][:ENTRY_CHARS])}\n</entry>')
@@ -123,7 +138,10 @@ def extract_entry(conn: sqlite3.Connection, llm, entry_id: int) -> bool:
     if still is None or still["text"] != row["text"]:
         return False  # edited or deleted during the call: the next pass does it again
     with conn:
+        shared = ambiguous_names(people)
         for name in facts["people"]:
+            if name.casefold() in shared:
+                continue  # a nickname two people share: the owner says which one, not a guess
             conn.execute("INSERT OR IGNORE INTO people(name, created_at) VALUES (?, ?)", (name, _now()))
         conn.execute(
             "INSERT OR REPLACE INTO entry_facts(entry_id, data, model, created_at) VALUES (?, ?, '', ?)",

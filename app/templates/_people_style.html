@@ -23,7 +23,17 @@
 
   /* The map: you in the middle, people on rings. Nearest ring = written about most. */
   .orbit-wrap { display: grid; justify-items: center; }
-  .orbit { position: relative; width: min(100%, 460px); aspect-ratio: 1; margin: 6px 0 34px; }
+  .orbit { position: relative; width: min(100%, 460px); aspect-ratio: 1; margin: 6px 0 12px; overflow: hidden; border-radius: 28px; touch-action: pan-y; contain: layout paint; }
+  .orbit.zoomed { touch-action: none; cursor: grab; }
+  .stage { position: absolute; inset: 0; transform-origin: 50% 50%; will-change: transform; }
+  .stage.glide { transition: transform 200ms var(--ease); }
+  .set { position: absolute; inset: 0; }
+  .set[hidden] { display: none; }
+  .wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .wires line { stroke: var(--accent); stroke-width: 0.45; stroke-linecap: round; opacity: 0.7; vector-effect: non-scaling-stroke; stroke-width: 1.5; }
+  .orb.dim { opacity: 0.28; }
+  .orb.sel .av { scale: 1.18; outline: 2px solid var(--accent); }
+  .orb { cursor: pointer; }
   /* Not ".ring": Tailwind owns that class name (a blue focus ring). */
   .orbit-ring { position: absolute; left: 50%; top: 50%; width: var(--d); height: var(--d); translate: -50% -50%; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.11); background: radial-gradient(closest-side, rgba(255, 180, 107, 0.05), transparent 70%); }
   .you { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; background: var(--accent-grad); color: var(--on-accent); font-family: var(--font-serif); font-size: 21px; box-shadow: 0 12px 34px -10px #ff7d58, inset 0 1px 0 rgba(255, 255, 255, 0.4); }
@@ -40,7 +50,42 @@
   .orb:hover .av { scale: 1.1; outline-color: var(--accent); }
   .orb:focus-visible { outline: none; }
   .orb:focus-visible .av { outline: 2px solid var(--text); outline-offset: 3px; }
-  .orbit-rest { margin-top: -18px; }
+  .orbit-rest { margin-top: 0; }
+  .map-hint { margin-top: 4px; text-align: center; }
+  .map-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; width: min(100%, 460px); }
+  .seg-s .seg-btn { min-height: 32px; padding: 0 12px; font-size: 12.5px; }
+  .zoom { display: flex; gap: 4px; }
+  .zbtn { min-height: 36px; min-width: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,0.06); color: var(--text); font: inherit; cursor: pointer; }
+  .zbtn:hover { background: rgba(255,255,255,0.12); }
+  .zreset { font-size: 12px; }
+  .pcard { width: min(100%, 460px); box-sizing: border-box; display: grid; gap: 6px; justify-items: start; margin-top: 6px; padding: 14px 16px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--glass-edge); }
+  .pcard[hidden] { display: none; }
+  .pcard-top { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; }
+  .pcard-name { font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+  .pcard-x { min-width: 36px; min-height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 22px; cursor: pointer; }
+  .pcard-meta, .pcard-near { margin: 0; color: var(--muted); font-size: 13px; line-height: 20px; }
+  .pcard-near:empty { display: none; }
+  .todo { display: grid; gap: 6px; }
+  .todo-a { display: block; padding: 12px 14px; border-radius: 16px; background: rgba(255,180,107,0.12); border: 1px solid rgba(255,180,107,0.4); color: var(--text); text-decoration: none; font-size: 14px; line-height: 20px; }
+  .todo-a:hover { background: rgba(255,180,107,0.2); }
+  .chip-wrap { display: inline-flex; align-items: center; gap: 0; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); }
+  .chip-wrap .chip-p { border: 0; background: transparent; }
+  .chip-x { margin: 0; }
+  .chip-inf { border-style: dashed; color: var(--muted); }
+  .faint { color: var(--faint); font-weight: 400; font-size: 12px; }
+  .sugg { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .sugg li { display: grid; gap: 6px; padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,0.05); }
+  .sugg-q { color: var(--muted); font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+  .sugg-a { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sugg-a form { margin: 0; }
+  .link-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+  .link-who { font-size: 14px; }
+  .rw-row { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+  .rw-row input { margin-top: 4px; width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+  .rw-main { display: grid; gap: 4px; min-width: 0; }
+  .rw-was { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(255,127,138,0.6); overflow-wrap: anywhere; font-size: 14px; line-height: 21px; }
+  .rw-now { color: var(--text); overflow-wrap: anywhere; font-size: 14px; line-height: 21px; }
+  .rw .q-acts { margin-top: 12px; }
   .ppl[data-view="list"] .orbit-wrap, .ppl[data-view="map"] .plist { display: none; }
 
   .plist, .qlist, .ign, .chips, .tl, .alias, .bars, .proof { list-style: none; margin: 0; padding: 0; }
@@ -162,13 +207,13 @@
     .you { animation: you-in 560ms var(--ease) both; }
     .orb { animation: orb-in 640ms var(--ease) both; animation-delay: calc(160ms + var(--i) * 45ms); }
     @keyframes ring-in { from { opacity: 0; scale: 0.55; } to { opacity: 1; scale: 1; } }
-    @keyframes you-in { from { opacity: 0; scale: 0.6; filter: blur(6px); } to { opacity: 1; scale: 1; filter: none; } }
-    @keyframes orb-in { from { opacity: 0; left: 50%; top: 50%; filter: blur(4px); } to { opacity: 1; left: var(--x); top: var(--y); filter: none; } }
+    @keyframes you-in { from { opacity: 0; scale: 0.6; } to { opacity: 1; scale: 1; } }
+    @keyframes orb-in { from { opacity: 0; scale: 0.6; } to { opacity: 1; scale: 1; } }
     .bar-fill { animation: bar-in 700ms var(--ease) both; transform-origin: left; }
     @keyframes bar-in { from { transform: scaleX(0.05); } to { transform: none; } }
   }
   @media (prefers-reduced-motion: reduce) {
-    .seg-btn, .prow, .orb .av, .read-btn, .back, .chip-p, .tl-link, .fold > summary::after, .text-in { transition: none; }
+    .stage, .seg-btn, .prow, .orb .av, .read-btn, .back, .chip-p, .tl-link, .fold > summary::after, .text-in { transition: none; }
     .orb:hover .av { scale: 1; }
     .prow:active, .read-btn:active { transform: none; }
   }

@@ -15,7 +15,7 @@ import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
-from . import extract, memory
+from . import connections, extract, memory
 from .llm import LLMError
 from .moods import MOODS
 
@@ -27,9 +27,9 @@ READS = {"closer": "closer", "same": "about the same", "apart": "further apart"}
 NAME_MAX = 60
 RELATION_MAX = 80
 ALIASES_MAX = 12
-RINGS = (4, 7, 9)  # people per ring of the map, nearest first
-RING_RADIUS = (21.0, 33.0, 45.0)  # percent of the map's width
-RING_TURN = (0.0, 0.42, 0.95)  # each ring starts at its own angle so names do not stack in a column
+MAP_MAX = 24  # people drawn on the map; the rest are in the list
+RING_RADIUS = (19.0, 29.0, 40.0)  # percent of the map's width
+GOLDEN = 2.399963  # each next person is turned by this angle, so names spread out and never stack
 TONES = 8  # avatar colours, see .tone-N in people.html
 RECENT_DAYS = 30
 GOOD_MOODS = ("good", "okay")
@@ -128,7 +128,9 @@ def _lookup(people: list[dict]) -> dict[str, int]:
 
 def sync(conn: sqlite3.Connection) -> int:
     """Add every name found in the entry facts that no person carries yet, as a suggestion."""
-    table = _lookup(everyone(conn))
+    people = everyone(conn)
+    table = _lookup(people)
+    shared = extract.ambiguous_names(people)
     added = 0
     for row in conn.execute("SELECT data FROM entry_facts"):
         try:
@@ -137,7 +139,7 @@ def sync(conn: sqlite3.Connection) -> int:
             facts = None
         for name in (facts or {}).get("people", ()):
             name = _WS.sub(" ", name).strip()[:NAME_MAX].rstrip()
-            if name and name.casefold() not in table:
+            if name and name.casefold() not in table and name.casefold() not in shared:
                 cur = conn.execute("INSERT OR IGNORE INTO people(name, created_at) VALUES (?, ?)", (name, _now()))
                 if cur.rowcount:
                     table[name.casefold()] = cur.lastrowid
@@ -147,10 +149,19 @@ def sync(conn: sqlite3.Connection) -> int:
     return added
 
 
-def mentions(conn: sqlite3.Connection, people: list[dict] | None = None) -> dict[int, list[int]]:
-    """person id -> ids of the entries whose facts name them, oldest entry first."""
-    table = _lookup(everyone(conn) if people is None else people)
-    out: dict[int, list[int]] = {}
+def _walk(conn: sqlite3.Connection, people: list[dict]):
+    """(entry id, name as written, person id or None, candidate ids) for every name in every entry's
+    facts, oldest entry first. A name two people share is None until the owner picks (mention_choices)."""
+    table = _lookup(people)
+    shared = extract.ambiguous_names(people)
+    holders: dict[str, list[int]] = {}
+    for p in people:
+        for alias in p["aliases"]:
+            if alias.casefold() in shared:
+                holders.setdefault(alias.casefold(), []).append(p["id"])
+    alive = {p["id"] for p in people}
+    choices = {(r["entry_id"], r["name_cf"]): r["person_id"]
+               for r in conn.execute("SELECT entry_id, name_cf, person_id FROM mention_choices")}
     rows = conn.execute(
         "SELECT f.entry_id, f.data FROM entry_facts f JOIN entries e ON e.id = f.entry_id"
         " ORDER BY e.created_at, e.id"
@@ -160,13 +171,77 @@ def mentions(conn: sqlite3.Connection, people: list[dict] | None = None) -> dict
             facts = extract.clean(json.loads(row["data"]))
         except ValueError:
             continue
-        seen = set()
         for name in (facts or {}).get("people", ()):
-            person_id = table.get(_WS.sub(" ", name).strip().casefold())
-            if person_id is not None and person_id not in seen:
-                seen.add(person_id)
-                out.setdefault(person_id, []).append(row["entry_id"])
+            name = _WS.sub(" ", name).strip()
+            key = name.casefold()
+            chosen = choices.get((row["entry_id"], key))
+            if chosen in alive:
+                yield row["entry_id"], name, chosen, []
+            elif key in shared:
+                yield row["entry_id"], name, None, holders.get(key, [])
+            else:
+                yield row["entry_id"], name, table.get(key), []
+
+
+def mentions(conn: sqlite3.Connection, people: list[dict] | None = None, walked=None) -> dict[int, list[int]]:
+    """person id -> ids of the entries whose facts name them, oldest entry first."""
+    people = everyone(conn) if people is None else people
+    out: dict[int, list[int]] = {}
+    for entry_id, _name, person_id, _cands in (_walk(conn, people) if walked is None else walked):
+        if person_id is not None and (not out.get(person_id) or out[person_id][-1] != entry_id):
+            out.setdefault(person_id, []).append(entry_id)
     return out
+
+
+def unresolved(conn: sqlite3.Connection, people: list[dict] | None = None, walked=None) -> list[dict]:
+    """Places where an entry names someone by a nickname that two or more people carry ("dada"):
+    [{entry_id, name, candidates}], oldest first."""
+    people = everyone(conn) if people is None else people
+    walked = _walk(conn, people) if walked is None else walked
+    return [{"entry_id": e, "name": n, "candidates": c} for e, n, pid, c in walked if pid is None and c]
+
+
+def review(conn: sqlite3.Connection) -> list[dict]:
+    """The "which one?" list: each place with a snippet and the candidates, the likely one marked.
+    Likely = the candidate related to someone else the same entry names."""
+    people = everyone(conn)
+    by_id = {p["id"]: p for p in people}
+    walked = list(_walk(conn, people))
+    todo = unresolved(conn, people, walked)
+    if not todo:
+        return []
+    named: dict[int, set[int]] = {}
+    for entry_id, _n, pid, _c in walked:
+        if pid is not None:
+            named.setdefault(entry_id, set()).add(pid)
+    near = connections.neighbours(conn)
+    rows = _entries(conn, {t["entry_id"] for t in todo})
+    out = []
+    for t in todo:
+        row = rows.get(t["entry_id"])
+        if row is None:
+            continue
+        cands = [by_id[i] for i in t["candidates"] if i in by_id and by_id[i]["status"] != "ignored"]
+        likely = [c["id"] for c in cands if set(near.get(c["id"], ())) & named.get(t["entry_id"], set())]
+        out.append({
+            "entry_id": t["entry_id"], "name": t["name"], "date": row["local_date"],
+            "when": f"{date.fromisoformat(row['local_date']):%d %b %Y}",
+            "text": snippet(row["text"], [t["name"]]),
+            "candidates": [{"id": c["id"], "name": c["name"], "likely": len(likely) == 1 and c["id"] in likely}
+                           for c in cands],
+        })
+    return out
+
+
+def choose(conn: sqlite3.Connection, entry_id: int, name: str, person_id: int) -> None:
+    """The owner says which person a nickname means in one entry."""
+    person = _require(conn, person_id)
+    if person["status"] == "ignored" or conn.execute("SELECT 1 FROM entries WHERE id = ?", (entry_id,)).fetchone() is None:
+        raise LookupError("choice")
+    key = _WS.sub(" ", str(name)).strip().casefold()
+    conn.execute("INSERT OR REPLACE INTO mention_choices(entry_id, name_cf, person_id) VALUES (?, ?, ?)",
+                 (entry_id, key, person_id))
+    conn.commit()
 
 
 def _entries(conn: sqlite3.Connection, ids) -> dict[int, sqlite3.Row]:
@@ -218,7 +293,8 @@ def overview(conn: sqlite3.Connection, today: date) -> dict:
     suggestions waiting for an answer, and the ignored names."""
     sync(conn)
     people = everyone(conn)
-    index = mentions(conn, people)
+    walked = list(_walk(conn, people))  # one pass over the entry facts serves everything below
+    index = mentions(conn, people, walked)
     rows = _entries(conn, {i for ids in index.values() for i in ids})
     cards = [_card(p, index.get(p["id"], []), rows, today) for p in people]
     confirmed = sorted((c for c in cards if c["status"] == "confirmed"),
@@ -229,27 +305,36 @@ def overview(conn: sqlite3.Connection, today: date) -> dict:
         last_id = index[card["id"]][-1]
         card["snippet"] = snippet(rows[last_id]["text"], _names(card)) if last_id in rows else ""
     ignored = sorted((c for c in cards if c["status"] == "ignored"), key=lambda c: c["name"].casefold())
+    near = connections.neighbours(conn)
     return {"confirmed": confirmed, "suggested": suggested, "ignored": ignored,
-            "orbit": orbit(confirmed), "first": min((c["first"] for c in confirmed if c["first"]), default=None)}
+            "orbit": orbit(confirmed), "near": near,
+            "to_pick": len(unresolved(conn, people, walked)), "link_waiting": connections.waiting_count(conn),
+            "first": min((c["first"] for c in confirmed if c["first"]), default=None)}
 
 
-def orbit(confirmed: list[dict]) -> dict:
-    """Where each person sits on the map. The most written about sit on the nearest ring.
-
-    Positions are percentages of a square, worked out here so the page needs no script."""
-    placed, start = [], 0
-    for ring, (size, radius) in enumerate(zip(RINGS, RING_RADIUS)):
-        group = confirmed[start:start + size]
-        start += size
-        for slot, card in enumerate(group):
-            angle = -math.pi / 2 + RING_TURN[ring] + slot * 2 * math.pi / len(group)
-            placed.append({
-                "id": card["id"], "name": card["name"], "initial": card["initial"], "tone": card["tone"],
-                "count": card["count"], "recent": card["recent"], "ring": ring + 1, "slot": len(placed),
-                "x": round(50 + radius * math.cos(angle), 2), "y": round(50 + radius * math.sin(angle), 2),
-            })
-    rings = [r for i, r in enumerate(RING_RADIUS) if any(p["ring"] == i + 1 for p in placed)]
-    return {"people": placed, "rings": [round(r * 2, 2) for r in rings], "rest": max(0, len(confirmed) - start)}
+def orbit(confirmed: list[dict], order: str = "count") -> dict:
+    """Where each person sits on the map: the more entries, the nearer the middle (and the larger
+    the circle). Positions are percentages of a square, worked out here so the page needs no script.
+    order "recent" ranks by the last 30 days instead of all time."""
+    key = "recent" if order == "recent" else "count"
+    ranked = sorted(confirmed, key=lambda c: (-c[key], -c["count"], c["name"].casefold()))[:MAP_MAX]
+    n = len(ranked)
+    top = max((c[key] for c in ranked), default=0) or 1
+    placed = []
+    for i, card in enumerate(ranked):
+        by_rank = math.sqrt(i / (n - 1)) if n > 1 else 0.0
+        by_count = 1 - math.sqrt(card[key] / top)
+        far = 0.5 * by_rank + 0.5 * by_count  # 0 = nearest, 1 = farthest
+        radius = 15.0 + 25.0 * far
+        angle = -math.pi / 2 + i * GOLDEN
+        placed.append({
+            "id": card["id"], "name": card["name"], "initial": card["initial"], "tone": card["tone"],
+            "count": card["count"], "recent": card["recent"], "last": card["last"],
+            "relation": card["relation"], "ring": 1 if far < 0.34 else 2 if far < 0.67 else 3, "slot": i,
+            "x": round(50 + radius * math.cos(angle), 2), "y": round(50 + radius * math.sin(angle), 2),
+        })
+    rings = [round(r * 2, 2) for r in RING_RADIUS] if placed else []
+    return {"people": placed, "rings": rings, "rest": max(0, len(confirmed) - n), "order": key}
 
 
 def _mood_share(rows) -> int | None:
@@ -313,6 +398,8 @@ def detail(conn: sqlite3.Connection, person_id: int, today: date) -> dict | None
         "mood_share": _mood_share(with_them), "mood_share_all": _mood_share(everything),
         "companions": companions, "merge_targets": targets, "summary_quotes": quotes,
         "read_label": READS.get(person["own_read"] or ""),
+        "links": connections.for_person(conn, person_id),
+        "pick_here": sum(1 for t in unresolved(conn, people) if person_id in t["candidates"]),
     }
 
 
@@ -391,10 +478,10 @@ def add_alias(conn: sqlite3.Connection, person_id: int, alias: str) -> None:
     owner = _lookup(everyone(conn)).get(alias.casefold())
     if owner is not None and owner != person_id:
         other = _require(conn, owner)
-        if other["status"] == "confirmed":
-            raise ValueError("taken")  # two confirmed people: merge them instead
-        merge(conn, owner, person_id)
-        return
+        if other["status"] != "confirmed":
+            merge(conn, owner, person_id)  # an unanswered or ignored name with that spelling: absorbed
+            return
+        # two confirmed people may share a nickname ("dada"): entries that use it ask which one
     conn.execute("UPDATE people SET aliases = ? WHERE id = ?",
                  (json.dumps([*person["aliases"], alias], ensure_ascii=False), person_id))
     conn.commit()
@@ -421,6 +508,8 @@ def merge(conn: sqlite3.Connection, source_id: int, target_id: int) -> None:
             have.add(name.casefold())
             aliases.append(name)
     _drop_notes(conn, source)
+    connections.move_links(conn, source_id, target_id)
+    conn.execute("UPDATE OR IGNORE mention_choices SET person_id = ? WHERE person_id = ?", (target_id, source_id))
     with conn:
         conn.execute("DELETE FROM people WHERE id = ?", (source_id,))
         conn.execute("UPDATE people SET aliases = ? WHERE id = ?",

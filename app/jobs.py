@@ -271,7 +271,7 @@ def _reflection_tick(db_path: str, llm, now: datetime) -> list[int]:
 def upkeep_tick(db_path: str, llm) -> None:
     """Catch-up work after each scheduler pass: vectors and facts for new or edited entries and
     vectors for memory notes. Small batches; any failure waits for the next pass."""
-    from . import config, embeddings, extract, people  # lazy: keeps this module light for the tests
+    from . import config, connections, embeddings, extract, people  # lazy: keeps this module light for the tests
 
     conn = connect(db_path)
     try:
@@ -285,6 +285,8 @@ def upkeep_tick(db_path: str, llm) -> None:
         if extract.missing_count(conn):
             extract.fill_missing(conn, resolve_llm(llm))
         people.sync(conn)
+        if config.get_llm_settings().api_key is not None and connections.pending_count(conn):
+            connections.scan_due(conn, resolve_llm(llm))
         if people._due(conn) is not None:
             people.refresh_due(conn, resolve_llm(llm))
     finally:

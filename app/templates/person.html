@@ -35,6 +35,68 @@
   </div>
 
   {% if p.status == 'confirmed' %}
+  <section class="panel" id="connections">
+    <h2 class="sec-title">Family and connections</h2>
+    {% if p.pick_here %}<p class="hint"><a class="textlink" href="/people/review">{{ p.pick_here }} {{ 'entry uses' if p.pick_here == 1 else 'entries use' }} a nickname {{ p.name }} shares. Say which person it means.</a></p>{% endif %}
+    {% for g in p.links.groups %}
+    <h3 class="lbl">{{ g.heading }}</h3>
+    <ul class="chips">
+      {% for c in g['items'] %}
+      <li class="chip-wrap">
+        <a class="chip-p" href="/people/{{ c.id }}">{{ c.name }}</a>
+        <form class="chip-x" method="post" action="/people/links/{{ c.link_id }}/remove">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="back" value="/people/{{ p.id }}">
+          <button class="alias-x" type="submit" aria-label="Remove: {{ g.heading }} {{ c.name }}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg></button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endfor %}
+    {% for g in p.links.worked %}
+    <h3 class="lbl">{{ g.heading }} <span class="faint">worked out</span></h3>
+    <ul class="chips">
+      {% for c in g['items'] %}<li><a class="chip-p chip-inf" href="/people/{{ c.id }}">{{ c.name }}</a></li>{% endfor %}
+    </ul>
+    {% endfor %}
+    {% if p.links.waiting %}
+    <h3 class="lbl">Found in your entries, waiting for you</h3>
+    <ul class="sugg">
+      {% for c in p.links.waiting %}
+      <li>
+        <span class="sugg-t">{{ c.heading }} <a class="textlink" href="/people/{{ c.id }}">{{ c.name }}</a>?</span>
+        {% if c.quote %}<span class="sugg-q">&ldquo;{{ c.quote }}&rdquo;</span>{% endif %}
+        <span class="sugg-a">
+          <form method="post" action="/people/links/{{ c.link_id }}/confirm"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn-main pad" type="submit">Yes</button></form>
+          <form method="post" action="/people/links/{{ c.link_id }}/remove"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="back" value="/people/{{ p.id }}"><button class="btn-quiet" type="submit">Not right</button></form>
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if not p.links.groups and not p.links.worked and not p.links.waiting %}
+    <p class="hint">Nobody linked yet. Say how {{ p.name }} is connected to someone and it shows here and on the map.</p>
+    {% endif %}
+    {% if p.merge_targets %}
+    <form class="link-form" method="post" action="/people/{{ p.id }}/link">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <span class="link-who">{{ p.name }} is</span>
+      <label class="sr-only" for="l-choice">Relation</label>
+      <select class="select" id="l-choice" name="choice" required>
+        {% for key, label in choices %}<option value="{{ key }}">{{ label|lower }}</option>{% endfor %}
+      </select>
+      <label class="sr-only" for="l-other">Person</label>
+      <select class="select" id="l-other" name="other" required>
+        {% for m in p.merge_targets %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}
+      </select>
+      <button class="btn-quiet" type="submit">Add</button>
+    </form>
+    <p class="hint">Setting it here is final. The reverse is filled in for the other person, and things like brothers and sisters are worked out.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if p.status == 'confirmed' %}
   <section class="panel">
     <h2 class="sec-title">How you have been writing about them</h2>
     {% if p.summary %}
@@ -143,6 +205,21 @@
       <input class="text-in" id="p-alias" type="text" name="alias" maxlength="60" required autocomplete="off" placeholder="Another name">
       <button class="btn-quiet" type="submit">Add name</button>
     </form>
+
+    {% if undo %}
+    <h3 class="lbl">Names changed in entries</h3>
+    <ul class="alias">
+      {% for u in undo %}
+      <li>
+        <form method="post" action="/people/{{ p.id }}/rewrite/undo">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="batch" value="{{ u.batch }}">
+          <span>{{ u.count }} {{ 'entry' if u.count == 1 else 'entries' }} on {{ u.at }}</span><button class="btn-quiet" type="submit">Undo</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
 
     {% if p.merge_targets %}
     <h3 class="lbl">Same person as someone else?</h3>

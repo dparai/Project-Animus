@@ -84,18 +84,21 @@ def test_confirm_counts_entries_and_orders_by_how_often(conn):
     assert [(c["name"], c["count"], c["recent"]) for c in view["confirmed"]] == [("Mira", 3, 3), ("Tom", 1, 0)]
     assert view["suggested"] == []
     spots = view["orbit"]["people"]
-    assert [s["name"] for s in spots] == ["Mira", "Tom"] and all(s["ring"] == 1 for s in spots)
+    assert [s["name"] for s in spots] == ["Mira", "Tom"] and spots[0]["ring"] == 1 and spots[1]["ring"] > 1
     assert all(0 < s["x"] < 100 and 0 < s["y"] < 100 for s in spots)
 
 
-def test_map_holds_three_rings_and_counts_the_rest(conn):
-    for n in range(25):
-        _entry(conn, "2026-11-01", f"Met P{n:02d}.", [f"P{n:02d}"])
+def test_map_puts_most_written_about_nearest_and_counts_the_rest(conn):
+    for n in range(30):
+        for _ in range(30 - n):
+            _entry(conn, "2026-11-01", f"Met P{n:02d}.", [f"P{n:02d}"])
         _confirmed(conn, f"P{n:02d}")
     orbit = people.overview(conn, TODAY)["orbit"]
-    assert len(orbit["people"]) == sum(people.RINGS) and orbit["rest"] == 25 - sum(people.RINGS)
-    assert [p["ring"] for p in orbit["people"]].count(1) == people.RINGS[0] and len(orbit["rings"]) == 3
+    assert len(orbit["people"]) == people.MAP_MAX and orbit["rest"] == 30 - people.MAP_MAX
+    dist = [((p["x"] - 50) ** 2 + (p["y"] - 50) ** 2) ** 0.5 for p in orbit["people"]]
+    assert dist == sorted(dist) and orbit["people"][0]["name"] == "P00"  # more entries, nearer the middle
     assert len({(p["x"], p["y"]) for p in orbit["people"]}) == len(orbit["people"])  # nobody shares a spot
+    assert all(0 < p["x"] < 100 and 0 < p["y"] < 100 for p in orbit["people"])
 
 
 def test_ignored_name_stays_gone_and_is_not_offered_to_the_model(conn):
@@ -129,8 +132,7 @@ def test_other_names_add_absorb_and_remove(conn):
     maa, tom = _confirmed(conn, "Maa"), _confirmed(conn, "Tom")
     people.add_alias(conn, maa, "Mum")  # the waiting suggestion is absorbed
     assert people.overview(conn, TODAY)["confirmed"][0]["count"] == 2
-    with pytest.raises(ValueError, match="taken"):
-        people.add_alias(conn, maa, "Tom")  # two confirmed people: merge instead
+    people.add_alias(conn, maa, "Tom")  # two confirmed people may share a nickname; entries then ask which
     people.remove_alias(conn, maa, "Mum")
     view = people.overview(conn, TODAY)
     assert [s["name"] for s in view["suggested"]] == ["Mum"]  # entries still use it, so it asks again

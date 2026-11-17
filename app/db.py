@@ -218,6 +218,43 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     last_ok_at INTEGER NULL,
     failures INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS person_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    a_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    b_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('parent','spouse','sibling','cousin','friend','other')),
+    source TEXT NOT NULL CHECK (source IN ('owner','ai')),
+    status TEXT NOT NULL CHECK (status IN ('suggested','confirmed','dismissed')),
+    entry_id INTEGER NULL,
+    quote TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    CHECK (a_id <> b_id),
+    UNIQUE (a_id, b_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS mention_choices (
+    entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    name_cf TEXT NOT NULL,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    PRIMARY KEY (entry_id, name_cf)
+);
+
+CREATE TABLE IF NOT EXISTS link_scan (
+    entry_id INTEGER PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE,
+    scanned_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS entry_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch TEXT NOT NULL,
+    entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    old_text TEXT NOT NULL,
+    new_text TEXT NOT NULL,
+    person_id INTEGER NULL,
+    created_at TEXT NOT NULL,
+    undone INTEGER NOT NULL DEFAULT 0
+);
 """
 
 # People columns added after the table first shipped: (name, declaration). Fixed text, never user input.

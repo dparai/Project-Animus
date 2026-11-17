@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Connections · People · Animus{% endblock %}
+{% block content %}
+<div class="page ppl">
+  <a class="back" href="/people"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg>People</a>
+  <header class="ppl-head"><div>
+    <h1 class="ppl-title">Connections found</h1>
+    <p class="ppl-sub">Animus read your entries and thinks these people are related. Nothing counts until you say yes. A wrong one can be fixed, and a dismissed one is not suggested again.</p>
+  </div></header>
+  {% if items %}
+  <ul class="qlist">
+    {% for it in items %}
+    <li class="qcard">
+      <p class="q-name">{{ it.sentence }}?</p>
+      {% if it.quote %}<p class="q-quote">&ldquo;{{ it.quote }}&rdquo;{% if it.entry_id %} <a class="textlink" href="/entries">see entries</a>{% endif %}</p>{% endif %}
+      <div class="q-acts">
+        <form method="post" action="/people/links/{{ it.link_id }}/confirm"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn-main q-add" type="submit">Yes</button></form>
+        <form method="post" action="/people/links/{{ it.link_id }}/remove"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn-quiet" type="submit">Not right</button></form>
+        <details class="q-same">
+          <summary class="btn-quiet">Fix it</summary>
+          <form class="q-merge" method="post" action="/people/links/{{ it.link_id }}/fix">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <select class="select" name="person_id" aria-label="First person">{% for p in everyone %}<option value="{{ p.id }}"{% if p.id == it.a_id %} selected{% endif %}>{{ p.name }}</option>{% endfor %}</select>
+            <select class="select" name="choice" aria-label="Relation">{% for key, label in choices %}<option value="{{ key }}"{% if key == it.kind %} selected{% endif %}>is {{ label|lower }}</option>{% endfor %}</select>
+            <select class="select" name="other_id" aria-label="Second person">{% for p in everyone %}<option value="{{ p.id }}"{% if p.id == it.b_id %} selected{% endif %}>{{ p.name }}</option>{% endfor %}</select>
+            <button class="btn-quiet" type="submit">Save</button>
+          </form>
+        </details>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty"><p class="empty-title">Nothing waiting.</p><p class="empty-text">New connections found in your entries show up here for you to confirm.</p></div>
+  {% endif %}
+</div>
+{% include "_people_style.html" %}
+{% endblock %}

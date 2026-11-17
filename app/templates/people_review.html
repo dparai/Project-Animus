@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Which person? · People · Animus{% endblock %}
+{% block content %}
+<div class="page ppl">
+  <a class="back" href="/people"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg>People</a>
+  <header class="ppl-head"><div>
+    <h1 class="ppl-title">Which person?</h1>
+    <p class="ppl-sub">Some words, like a shared nickname, mean different people in different entries. Say who each one means. You answer once, and it is remembered.</p>
+  </div></header>
+  {% if items %}
+  <ul class="qlist">
+    {% for it in items %}
+    <li class="qcard">
+      <div class="q-top"><div class="q-who"><span class="q-name">&ldquo;{{ it.name }}&rdquo;</span><span class="q-count num">{{ it.when }}</span></div></div>
+      <p class="q-quote">{{ it.text }}</p>
+      <div class="q-acts">
+        {% for c in it.candidates %}
+        <form method="post" action="/people/review/choose">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="entry_id" value="{{ it.entry_id }}">
+          <input type="hidden" name="name" value="{{ it.name }}">
+          <input type="hidden" name="person_id" value="{{ c.id }}">
+          <button class="{{ 'btn-main' if c.likely else 'btn-quiet' }}" type="submit">{{ c.name }}{% if c.likely %} (likely){% endif %}</button>
+        </form>
+        {% endfor %}
+        <a class="btn-quiet link-btn-a" href="/entries?day={{ it.date }}">Read the entry</a>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty"><p class="empty-title">Nothing to answer.</p><p class="empty-text">Every shared nickname in your entries is assigned.</p></div>
+  {% endif %}
+</div>
+{% include "_people_style.html" %}
+{% endblock %}

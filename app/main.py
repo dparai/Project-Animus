@@ -16,7 +16,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import account, ask, config, counselor, dashboard, db, devices, embeddings, entries, extract, focus, jobs, links, memory, passkeys, people, push, reflections, tz
+from urllib.parse import quote
+from app import account, ask, config, connections, counselor, dashboard, db, devices, embeddings, entries, extract, focus, jobs, links, memory, passkeys, people, push, reflections, rewrite, tz
 from app import auth as authn
 from app.limits import LoginLimiter
 from app.csrf import CsrfMiddleware
@@ -783,6 +784,7 @@ def create_app(
         "full": "That is the most names one person can have. Remove one first.",
         "relation": "Keep that to 80 characters or fewer.",
         "same": "Pick a different person to merge into.",
+        "link": "Pick two different people.",
     }
 
     def _people_done(target: str, problem: str | None = None) -> Response:
@@ -809,6 +811,57 @@ def create_app(
             return _people_done("/people", str(exc))
         return _people_done(f"/people/{person_id}")
 
+    # Pages with a fixed path come before "/people/{person_id}".
+
+    @app.get("/people/review")
+    async def people_review(request: Request, conn=Depends(get_conn)):
+        return templates.TemplateResponse(request, "people_review.html", {
+            "page": "people", "items": people.review(conn)})
+
+    @app.post("/people/review/choose")
+    async def people_choose(entry_id: int = Form(...), name: str = Form(""), person_id: int = Form(...),
+                            conn=Depends(get_conn)):
+        try:
+            people.choose(conn, entry_id, name, person_id)
+        except LookupError:
+            raise HTTPException(status_code=404, detail="Not found")
+        return _people_done("/people/review")
+
+    @app.get("/people/links")
+    async def people_links(request: Request, conn=Depends(get_conn)):
+        items = connections.waiting(conn)
+        for it in items:
+            it["sentence"] = connections.sentence(it)
+        everyone = [{"id": p["id"], "name": p["name"]} for p in people.everyone(conn) if p["status"] != "ignored"]
+        everyone.sort(key=lambda p: p["name"].casefold())
+        return templates.TemplateResponse(request, "people_links.html", {
+            "page": "people", "items": items, "choices": connections.CHOICES, "everyone": everyone})
+
+    @app.post("/people/links/{link_id}/confirm")
+    async def link_confirm(link_id: int, conn=Depends(get_conn)):
+        try:
+            connections.confirm(conn, link_id)
+        except LookupError:
+            raise HTTPException(status_code=404, detail="Not found")
+        return _people_done("/people/links")
+
+    @app.post("/people/links/{link_id}/remove")
+    async def link_remove(link_id: int, back: str = Form("/people/links"), conn=Depends(get_conn)):
+        try:
+            connections.remove(conn, link_id)
+        except LookupError:
+            raise HTTPException(status_code=404, detail="Not found")
+        return _people_done(back if back.startswith("/people") else "/people/links")
+
+    @app.post("/people/links/{link_id}/fix")
+    async def link_fix(link_id: int, person_id: int = Form(...), other_id: int = Form(...),
+                       choice: str = Form(""), conn=Depends(get_conn)):
+        try:
+            connections.fix(conn, link_id, person_id, other_id, choice)
+        except (LookupError, ValueError):
+            raise HTTPException(status_code=422, detail="Cannot change that link")
+        return _people_done("/people/links")
+
     @app.get("/people/{person_id}")
     async def person_page(request: Request, person_id: int, problem: str | None = None, conn=Depends(get_conn)):
         person = people.detail(conn, person_id, _today(conn))
@@ -816,7 +869,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="Person not found")
         return templates.TemplateResponse(request, "person.html", {
             "page": "people", "p": person, "kinds": people.KINDS, "reads": list(people.READS.items()),
-            "msg": PEOPLE_MESSAGES.get(problem or ""),
+            "msg": PEOPLE_MESSAGES.get(problem or ""), "choices": connections.CHOICES,
+            "undo": rewrite.recent_batches(conn, person_id),
         })
 
     @app.post("/people/{person_id}/confirm")
@@ -852,12 +906,46 @@ def create_app(
     @app.post("/people/{person_id}/details")
     async def person_details(person_id: int, name: str = Form(""), relation: str = Form(""),
                              kind: str = Form("person"), conn=Depends(get_conn)):
-        _person_or_404(conn, person_id)
+        before = _person_or_404(conn, person_id)
         try:
             people.set_relation(conn, person_id, relation, kind)
             people.rename(conn, person_id, name)
         except ValueError as exc:
             return _people_done(f"/people/{person_id}", str(exc) if str(exc) in PEOPLE_MESSAGES else "name")
+        now = people.get(conn, person_id)
+        if now["name"] != before["name"] and rewrite.candidates(conn, person_id, before["name"]):
+            return RedirectResponse(f"/people/{person_id}/rewrite?old={quote(before['name'])}", status_code=303)
+        return _people_done(f"/people/{person_id}")
+
+    @app.post("/people/{person_id}/link")
+    async def person_link(person_id: int, other: int = Form(...), choice: str = Form(""), conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        _person_or_404(conn, other)
+        try:
+            connections.add(conn, person_id, other, choice)
+        except ValueError:
+            return _people_done(f"/people/{person_id}", "link")
+        return _people_done(f"/people/{person_id}")
+
+    @app.get("/people/{person_id}/rewrite")
+    async def person_rewrite(request: Request, person_id: int, old: str = "", conn=Depends(get_conn)):
+        person = _person_or_404(conn, person_id)
+        return templates.TemplateResponse(request, "people_rewrite.html", {
+            "page": "people", "p": person, "old": old[:60], "items": rewrite.candidates(conn, person_id, old[:60])})
+
+    @app.post("/people/{person_id}/rewrite")
+    async def person_rewrite_apply(request: Request, person_id: int, conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        form = await request.form()
+        old = str(form.get("old") or "")[:60]
+        ids = [int(v) for v in form.getlist("entry") if str(v).isdigit()]
+        rewrite.apply(conn, person_id, old, ids)
+        return _people_done(f"/people/{person_id}")
+
+    @app.post("/people/{person_id}/rewrite/undo")
+    async def person_rewrite_undo(person_id: int, batch: str = Form(""), conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        rewrite.undo(conn, batch)
         return _people_done(f"/people/{person_id}")
 
     @app.post("/people/{person_id}/alias")

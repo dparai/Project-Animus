@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Update entries · People · Animus{% endblock %}
+{% block content %}
+<div class="page ppl">
+  <a class="back" href="/people/{{ p.id }}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg>{{ p.name }}</a>
+  <header class="ppl-head"><div>
+    <h1 class="ppl-title">Change &ldquo;{{ old }}&rdquo; to &ldquo;{{ p.name }}&rdquo;?</h1>
+    <p class="ppl-sub">The name is changed. These entries still say &ldquo;{{ old }}&rdquo; for this person. Untick any you want to leave as written. You can undo it afterwards.</p>
+  </div></header>
+  {% if items %}
+  <form method="post" action="/people/{{ p.id }}/rewrite" class="rw">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="old" value="{{ old }}">
+    <ul class="qlist">
+      {% for it in items %}
+      <li class="qcard">
+        <label class="rw-row"><input type="checkbox" name="entry" value="{{ it.entry_id }}" checked>
+          <span class="rw-main"><span class="q-count num">{{ it.date }}{% if it.count > 1 %} &middot; {{ it.count }} places{% endif %}</span>
+          <span class="rw-was">{{ it.before }}</span><span class="rw-now">{{ it.after }}</span></span></label>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="q-acts"><button class="btn-main pad" type="submit">Change the ticked entries</button><a class="btn-quiet link-btn-a" href="/people/{{ p.id }}">Leave them as written</a></div>
+  </form>
+  {% else %}
+  <div class="empty"><p class="empty-title">Nothing to change.</p><p class="empty-text">No entry uses the old name for {{ p.name }}.</p></div>
+  {% endif %}
+</div>
+{% include "_people_style.html" %}
+{% endblock %}
