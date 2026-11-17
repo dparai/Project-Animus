@@ -23,7 +23,7 @@ pyasn1==0.6.5
 pyasn1_modules==0.4.2
 pycparser==3.12
 pydantic==2.14.2
-pydantic_core==2.50.2
+pydantic_core==2.50.4
 Pygments==2.21.0
 pyOpenSSL==26.4.0
 pytest==9.2.0
