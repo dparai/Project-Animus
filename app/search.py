@@ -4,7 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from . import embeddings
+from . import embeddings, people
 
 STOP_WORDS = frozenset("""
 a about after again all also am an and any are as at be because been before being but by can
@@ -47,7 +47,8 @@ class Hints:
     moods: tuple[str, ...] = ()
 
 
-def build_query(question: str) -> str | None:
+def build_query(question: str, also: list[str] | None = None) -> str | None:
+    """FTS5 query of the question's words. `also` adds whole names (a person's other names) as phrases."""
     seen: list[str] = []
     text = _ISO.sub(" ", (question or "").lower())
     for token in _TOKEN.findall(text.replace("_", " ")):
@@ -59,6 +60,10 @@ def build_query(question: str) -> str | None:
             seen.append(token)
             if len(seen) >= MAX_TOKENS:
                 break
+    for name in also or ():
+        phrase = " ".join(_TOKEN.findall(name.lower().replace("_", " ")))
+        if phrase and phrase not in seen and len(seen) < MAX_TOKENS + 12:
+            seen.append(phrase)
     if not seen:
         return None
     return " OR ".join(f'"{token}"' for token in seen)
@@ -158,7 +163,7 @@ def _run(conn, match, hints: Hints, use_dates: bool, use_moods: bool, limit: int
 
 def find_entries(conn: sqlite3.Connection, question: str, today: date, limit: int = 8) -> list[sqlite3.Row]:
     limit = max(1, min(50, limit))
-    match = build_query(question)
+    match = build_query(question, people.search_terms(people.in_question(conn, question)))
     hints = parse_hints(question, today)
     if match is None and not hints.date_from:
         return []
@@ -203,19 +208,41 @@ def find_entries_hybrid(conn: sqlite3.Connection, question: str, today: date, li
                         qvec=None) -> list[sqlite3.Row]:
     """Keyword search and meaning search fused by rank, then entries linked to the best hits.
 
-    Without a question vector (no key, embedding failed) this is exactly `find_entries`."""
+    A confirmed person named in the question adds a third list: the entries whose facts name
+    them, under any of their names. Without a question vector (no key, embedding failed) and
+    without such a person this is exactly `find_entries`."""
     limit = max(1, min(50, limit))
     keyword = find_entries(conn, question, today, min(50, limit * 2))
-    if qvec is None:
+    about = people.entries_about(conn, people.in_question(conn, question), limit * 2)
+    if qvec is None and not about:
         return keyword[:limit]
     hints = parse_hints(question, today)
+    if hints.date_from and about:  # keep the question's dates for the people list too
+        marks = ",".join("?" * len(about))
+        inside = {r["id"] for r in conn.execute(
+            f"SELECT id FROM entries WHERE id IN ({marks}) AND local_date BETWEEN ? AND ?",
+            [*about, hints.date_from, hints.date_to])}
+        about = [i for i in about if i in inside] or about
+    if qvec is None:
+        meaning = []
+    else:
+        meaning = _meaning(conn, qvec, limit, hints)
+    if not meaning and not about:
+        return keyword[:limit]
+    return _fuse(conn, keyword, [meaning, about], limit)
+
+
+def _meaning(conn: sqlite3.Connection, qvec, limit: int, hints: Hints) -> list[int]:
     meaning = [i for i, _ in embeddings.search_entries(conn, qvec, limit * 2, hints.date_from, hints.date_to)]
     if hints.date_from and len(meaning) < limit:  # like the keyword search: fill from outside the dates
         meaning += [i for i, _ in embeddings.search_entries(conn, qvec, limit * 2) if i not in meaning]
-    if not meaning:
-        return keyword[:limit]
+    return meaning
+
+
+def _fuse(conn: sqlite3.Connection, keyword: list, others: list[list[int]], limit: int) -> list[sqlite3.Row]:
+    """Reciprocal rank fusion of the keyword rows with other ranked id lists, then linked entries."""
     score: dict[int, float] = {}
-    for ranked in ([r["id"] for r in keyword], meaning):
+    for ranked in ([r["id"] for r in keyword], *others):
         for rank, entry_id in enumerate(ranked):
             score[entry_id] = score.get(entry_id, 0.0) + 1.0 / (RRF_K + rank + 1)
     order = sorted(score, key=lambda i: -score[i])[:limit]

@@ -17,4 +17,6 @@ Animus is a single-user application: one owner, one password, one SQLite databas
 
 ## Built-in measures
 
+Each device can have its own app lock (fingerprint or face through a passkey, or the password). The lock is enforced by the server: a locked device gets no page and no data until a password or passkey check passes, and those checks share the login rate limit. Changing a lock or adding a passkey needs the password again. Passkey checks require user verification and are bound to the site name. The daily reminder is an empty Web Push (no payload), sent only to the push services of Chrome, Firefox, Safari and Edge.
+
 Failed logins are rate limited (5 failures from one client address block it for 15 minutes), and every state-changing request needs a CSRF token on top of SameSite cookies and an Origin check. Responses carry a strict Content-Security-Policy with per-request nonces and no third-party sources, plus nosniff, frame and referrer headers.

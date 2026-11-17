@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0d0a09">
+  <title>Offline · Animus</title>
+  <style>
+    @font-face { font-family: "Inter"; font-weight: 400 600; font-display: swap; src: url("/static/fonts/inter-latin-variable.woff2") format("woff2"); }
+    @font-face { font-family: "Instrument Serif"; font-weight: 400; font-display: swap; src: url("/static/fonts/instrument-serif-400-latin.woff2") format("woff2"); }
+    html, body { height: 100%; margin: 0; background: #0d0a09; color: #f8f2eb; font-family: "Inter", system-ui, sans-serif; font-size: 15px; line-height: 22px; -webkit-font-smoothing: antialiased; }
+    main { min-height: 100%; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; max-width: 360px; margin: 0 auto; padding: 24px 20px calc(24px + env(safe-area-inset-bottom)); }
+    h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 44px; line-height: 48px; letter-spacing: -0.02em; text-wrap: balance; }
+    p { margin: 12px 0 0; color: #c4b9ad; }
+    a { align-self: flex-start; margin-top: 28px; min-height: 48px; padding: 0 28px; display: inline-flex; align-items: center; border-radius: 999px; background: linear-gradient(135deg, #ffbb74 0%, #ff7d58 100%); color: #2b1507; font-weight: 600; text-decoration: none; }
+    a:focus-visible { outline: 2px solid #ffb46b; outline-offset: 3px; }
+    ::selection { background: rgba(255, 180, 107, 0.35); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>No connection</h1>
+    <p>Animus keeps your journal on your server, not on this device, so it needs a connection to open it.</p>
+    <a href="/">Try again</a>
+  </main>
+</body>
+</html>

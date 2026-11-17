@@ -4,8 +4,10 @@ One owner, one password. The bcrypt hash and the cookie-signing secret come from
 (ANIMUS_PASSWORD_HASH, ANIMUS_SESSION_SECRET); `scripts/set_password.py` writes both. Without them
 the app fails closed: every page answers 503 with a short "login not set up" notice.
 
-The session is stateless: a signed, timestamped cookie (itsdangerous) that carries only a random
-CSRF token. It lives 24 hours. Rotating the secret (every password change) logs out every session.
+The session is a signed, timestamped cookie (itsdangerous). It carries a random CSRF token, the
+session generation, the id of the device it was issued to and its own lifetime: 24 hours, or 30
+days on a device that has an app lock (app/devices.py). Rotating the secret (every password
+change) logs out every session.
 
 Passwords and hashes are never logged. A failed or blocked login logs a reason code and a keyed
 hash of the client's network (the IPv4 address without its last octet, an IPv6 /48).
@@ -33,10 +35,16 @@ BCRYPT_COST = 12  # scripts/set_password.py; tests pass a lower cost to hash_pas
 PASSWORD_MAX = 200  # characters; checked before any hashing
 SECRET_MIN = 32  # characters
 LIFETIME_S = 86400
+MAX_LIFETIME_S = 30 * 86400  # the longest life a cookie may claim for itself
+PASSKEY_BODY_MAX = 16 * 1024  # POST /login/passkey/*: one signed assertion
 COOKIE_MAX = 4096
 LOGIN_BODY_MAX = 8 * 1024  # POST /login is a password and a path; anything bigger is refused (413)
 FAILED = "That didn't work."
 LOGIN_PATH = "/login"
+PASSKEY_LOGIN_PATHS = frozenset({"/login/passkey/options", "/login/passkey/verify"})  # POST only
+LOCKED_PATH = "/locked"
+# What a locked device may still reach: the lock screen, the unlock checks and Log out.
+LOCK_OPEN = frozenset({LOCKED_PATH, "/unlock", "/unlock/passkey/options", "/unlock/passkey/verify", "/logout"})
 TRUSTED_PROXY = "127.0.0.1"  # Caddy on the same host; only it may set X-Forwarded-*
 _SALT = "animus.session.v1"
 _GEN_KEY = "session_gen"  # settings-table key
@@ -60,6 +68,8 @@ class AuthSettings:
 class Session:
     csrf: str = field(repr=False)
     issued_at: int = 0
+    device: str | None = None  # None: a cookie from before devices existed (no app lock)
+    lifetime_s: int = LIFETIME_S
 
 
 def _unquote(value: str) -> str:
@@ -197,10 +207,17 @@ class SessionGeneration:
         return new
 
 
-def issue_session(settings: AuthSettings, now: float, gen: int = 0) -> str:
+def issue_session(settings: AuthSettings, now: float, gen: int = 0, device: str | None = None,
+                  lifetime_s: int | None = None, csrf: str | None = None) -> str:
+    """`csrf` keeps the token of the session being renewed, so the open page keeps working."""
     if not settings.secret:
         raise ValueError("no session secret configured")
-    return _serializer(settings.secret, now).dumps({"c": secrets.token_urlsafe(32), "g": gen})
+    data = {"c": csrf or secrets.token_urlsafe(32), "g": gen}
+    if device:
+        data["d"] = device
+    if lifetime_s is not None:
+        data["l"] = max(1, min(int(lifetime_s), MAX_LIFETIME_S))
+    return _serializer(settings.secret, now).dumps(data)
 
 
 def read_session(settings: AuthSettings, cookie: str, now: float, gen: int = 0) -> Session | None:
@@ -209,7 +226,7 @@ def read_session(settings: AuthSettings, cookie: str, now: float, gen: int = 0) 
         return None
     try:
         data, stamp = _serializer(settings.secret, now).loads(
-            cookie, max_age=settings.lifetime_s, return_timestamp=True
+            cookie, max_age=max(settings.lifetime_s, MAX_LIFETIME_S), return_timestamp=True
         )
     except BadData:
         return None
@@ -222,7 +239,17 @@ def read_session(settings: AuthSettings, cookie: str, now: float, gen: int = 0) 
         return None
     if type(cookie_gen) is not int or cookie_gen != gen:  # logged out since this cookie was issued
         return None
-    return Session(csrf=csrf, issued_at=int(stamp.timestamp()))
+    # The cookie's own lifetime (signed, so it cannot be raised); without one, the default.
+    lifetime = data.get("l", settings.lifetime_s)
+    if type(lifetime) is not int or not 0 < lifetime <= max(settings.lifetime_s, MAX_LIFETIME_S):
+        return None
+    issued_at = int(stamp.timestamp())
+    if int(now) - issued_at > lifetime:
+        return None
+    device = data.get("d")
+    if device is not None and (not isinstance(device, str) or not 0 < len(device) <= 64):
+        return None
+    return Session(csrf=csrf, issued_at=issued_at, device=device, lifetime_s=lifetime)
 
 
 def safe_next(value: str | None) -> str:
@@ -237,7 +264,7 @@ def safe_next(value: str | None) -> str:
         parts = urlsplit(value)
     except ValueError:
         return "/"
-    if parts.scheme or parts.netloc or parts.path in (LOGIN_PATH, "/logout"):
+    if parts.scheme or parts.netloc or parts.path in (LOGIN_PATH, "/logout", LOCKED_PATH):
         return "/"
     return value
 
@@ -310,15 +337,43 @@ NO_STORE = {"Cache-Control": "no-store"}
 
 
 class AuthMiddleware:
-    """Pure ASGI gate. Open: /login (GET/POST), /healthz, /static/*. Everything else needs a valid
-    session, which is stored in scope["state"]["session"]."""
+    """Pure ASGI gate. Open: /login (GET/POST), POST /login/passkey/*, /healthz, /static/*.
+    Everything else needs a valid session, which is stored in scope["state"]["session"].
+
+    A session that names a device (every login does) is checked against that device's row:
+    missing or signed out means no session; locked means only the lock screen, the unlock checks
+    and Log out answer. The row goes to scope["state"]["device"] (a dict, with "locked")."""
 
     def __init__(self, app, settings: AuthSettings, clock=time.time,
-                 generation: SessionGeneration | None = None):
+                 generation: SessionGeneration | None = None, db_path: str | None = None):
         self.app = app
         self.settings = settings
         self.clock = clock
         self.generation = generation if generation is not None else SessionGeneration()
+        self.db_path = db_path
+
+    def _device(self, session: Session) -> dict | None:
+        """The session's device row plus "locked", or None when the session must not be honoured.
+        Fails closed: a database error counts as no session."""
+        from app import db, devices  # local import: this module stays importable on its own
+
+        now = int(self.clock())
+        try:
+            conn = db.connect(self.db_path)
+            try:
+                row = devices.get(conn, session.device)
+                if not devices.signed_in(row, self.generation.value):
+                    return None
+                if row["lock_mode"] == "none" and now - session.issued_at > self.settings.lifetime_s:
+                    return None  # a long-lived cookie outlives its lock: back to the short life
+                locked = devices.check_locked(conn, row, now)
+                devices.touch_seen(conn, row, now)
+                return {**dict(row), "locked": locked}
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            log.error("device check failed (%s)", type(exc).__name__)
+            return None
 
     def _session(self, scope) -> Session | None:
         for raw in _header_values(scope, b"cookie"):
@@ -344,16 +399,48 @@ class AuthMiddleware:
             await HTMLResponse(NOT_SET_UP, status_code=503, headers=NO_STORE)(scope, receive, send)
             return
         session = self._session(scope)
+        device = None
+        if session is not None and session.device is not None and self.db_path is not None:
+            device = self._device(session)
+            if device is None:
+                session = None
         if session is not None:
             scope.setdefault("state", {})["session"] = session
-        if path == LOGIN_PATH and scope["method"] == "POST":
-            receive = await _bounded_body(scope, receive, send, LOGIN_BODY_MAX)
+            if device is not None:
+                scope["state"]["device"] = device
+        passkey_login = path in PASSKEY_LOGIN_PATHS and scope["method"] == "POST"
+        if (path == LOGIN_PATH and scope["method"] == "POST") or passkey_login:
+            limit = PASSKEY_BODY_MAX if passkey_login else LOGIN_BODY_MAX
+            receive = await _bounded_body(scope, receive, send, limit)
             if receive is None:
                 return
-        if session is not None or path == LOGIN_PATH:
+        if device is not None and device["locked"] and path not in LOCK_OPEN:
+            await self._locked(scope)(scope, receive, send)
+            return
+        if session is not None or path == LOGIN_PATH or passkey_login:
             await self.app(scope, receive, send)
             return
         await self._refuse(scope)(scope, receive, send)
+
+    @staticmethod
+    def _locked(scope) -> Response:
+        """A page load goes to the lock screen; anything a script sent gets 423 so the open page
+        can show its own unlock sheet and keep what was typed."""
+        headers = dict(scope.get("headers", []))
+        scripted = (b"hx-request" in headers or b"x-requested-with" in headers
+                    or headers.get(b"sec-fetch-dest", b"document") not in (b"document", b"")
+                    or headers.get(b"sec-fetch-mode", b"navigate") != b"navigate")
+        if scope["method"] not in ("GET", "HEAD") or scripted:
+            return Response(status_code=423, headers={"X-Animus-Locked": "1", **NO_STORE})
+        location = LOCKED_PATH
+        target = scope["path"]
+        query = scope.get("query_string", b"").decode("latin-1")
+        if query:
+            target += "?" + query
+        target = safe_next(target)
+        if target != "/":
+            location += "?next=" + quote(target, safe="")
+        return Response(status_code=303, headers={"Location": location, **NO_STORE})
 
     @staticmethod
     def _refuse(scope) -> Response:

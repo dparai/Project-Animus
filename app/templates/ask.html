@@ -10,7 +10,7 @@
   <form class="ask-form" hx-post="/ask" hx-target="#ask-result" hx-swap="innerHTML" hx-disabled-elt="#ask-go" hx-indicator="#ask-form-state" autocomplete="off">
     <label class="ask-label" for="ask-q">Your question</label>
     <div class="ask-row">
-      <input id="ask-q" class="ask-input" type="text" name="question" maxlength="500" required enterkeyhint="send" placeholder="When did I last feel proud of my work?">
+      <input id="ask-q" class="ask-input" type="text" name="question" value="{{ q or '' }}" maxlength="500" required enterkeyhint="send" placeholder="When did I last feel proud of my work?">
       <button id="ask-go" class="btn-main ask-go" type="submit">Ask</button>
     </div>
     <p id="ask-form-state" class="ask-state" aria-hidden="true"><span class="ask-dot"></span><span id="ask-step">Reading your entries. This can take a minute.</span></p>

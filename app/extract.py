@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 
 from .llm import LLMError
@@ -73,7 +74,7 @@ def clean(raw) -> dict | None:
 
 
 def known_people(conn: sqlite3.Connection) -> list[dict]:
-    rows = conn.execute("SELECT name, aliases FROM people ORDER BY id").fetchall()
+    rows = conn.execute("SELECT name, aliases FROM people WHERE status != 'ignored' ORDER BY id").fetchall()
     out = []
     for r in rows:
         try:
@@ -137,6 +138,12 @@ def missing_count(conn: sqlite3.Connection) -> int:
     ).fetchone()[0]
 
 
+# After a rate limit (main and backup providers both refused) the facts pass rests for a while
+# instead of spending requests on a quota that has not reset.
+COOLDOWN_SECONDS = 20 * 60
+_cooldown_until = 0.0
+
+
 def fill_missing(conn: sqlite3.Connection, llm, limit: int = FILL_PER_RUN) -> int:
     """Note facts for up to `limit` entries that have none, newest first. Never raises; stops at
     the first model error so a busy or missing model costs one call."""
@@ -145,6 +152,9 @@ def fill_missing(conn: sqlite3.Connection, llm, limit: int = FILL_PER_RUN) -> in
         " WHERE f.entry_id IS NULL ORDER BY e.created_at DESC, e.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
+    global _cooldown_until
+    if time.monotonic() < _cooldown_until:
+        return 0
     done = 0
     for r in rows:
         try:
@@ -152,6 +162,8 @@ def fill_missing(conn: sqlite3.Connection, llm, limit: int = FILL_PER_RUN) -> in
                 done += 1
         except LLMError as exc:
             log.info("facts failed entry=%s reason=%s", r["id"], exc.reason)
+            if exc.reason == "http_429":
+                _cooldown_until = time.monotonic() + COOLDOWN_SECONDS
             break
         except Exception as exc:
             log.warning("facts failed entry=%s error=%s", r["id"], type(exc).__name__)

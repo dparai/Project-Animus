@@ -16,13 +16,14 @@ from starlette.concurrency import run_in_threadpool
 from starlette.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import ask, config, counselor, dashboard, db, embeddings, entries, extract, focus, jobs, links, memory, reflections, tz
+from app import account, ask, config, counselor, dashboard, db, devices, embeddings, entries, extract, focus, jobs, links, memory, passkeys, people, push, reflections, tz
 from app import auth as authn
 from app.limits import LoginLimiter
 from app.csrf import CsrfMiddleware
 from app.headers import BODY_MAX, BodyLimitMiddleware, SecurityHeadersMiddleware
 from app.security import CrossSiteGuardMiddleware
 from app.moods import MOODS
+from app import heatmap
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -34,6 +35,14 @@ class CachedStaticFiles(StaticFiles):
     def file_response(self, *args, **kwargs):
         response = super().file_response(*args, **kwargs)
         response.headers["Cache-Control"] = "public, max-age=86400"
+        name = Path(str(args[0])).name if args else ""
+        if name == "sw.js":
+            # The worker lives under /static/ (public) but serves the whole site: it only ever
+            # caches /static/ files. Browsers must re-check it, so updates reach the device.
+            response.headers["Service-Worker-Allowed"] = "/"
+            response.headers["Cache-Control"] = "no-cache"
+        elif name.endswith(".webmanifest"):
+            response.headers["Content-Type"] = "application/manifest+json"
         return response
 LIST_LIMIT = 100
 # Only loopback may reach the app (blocks DNS rebinding). Extra names come from ANIMUS_ALLOWED_HOSTS.
@@ -122,8 +131,14 @@ def _security_context(request: Request) -> dict:
     """Per-request template globals: the session's CSRF token and this response's CSP nonce."""
     state = request.scope.get("state") or {}
     session = state.get("session")
+    device = state.get("device")
+    # lock: this device's app lock, for the unlock sheet every page carries (None: no lock).
+    lock = None
+    if device is not None and device["lock_mode"] != "none":
+        lock = {"mode": device["lock_mode"], "after": device["lock_after_s"], "ping": devices.PING_S,
+                "passkey": device["lock_mode"] == "passkey" and passkeys.AVAILABLE}
     return {"csrf_token": session.csrf if session is not None else "",
-            "csp_nonce": state.get("csp_nonce", "")}
+            "csp_nonce": state.get("csp_nonce", ""), "lock": lock}
 
 
 def _parse_cursor(value: str) -> tuple[str, int]:
@@ -134,6 +149,16 @@ def _parse_cursor(value: str) -> tuple[str, int]:
         return created_at, int(raw_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Bad paging cursor")
+
+
+def _parse_day(value: str) -> date:
+    """'YYYY-MM-DD' -> date; anything else is a 400."""
+    try:
+        if len(value) != 10:
+            raise ValueError(value)
+        return date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Bad day")
 
 
 def _configure_logging() -> None:
@@ -212,12 +237,15 @@ def create_app(
     app.state.limiter = limiter
     app.state.clock = clock
     app.state.session_gen = generation
+    app.state.vapid = push.load_vapid()  # None: reminders are not set up on this server
+    app.state.push_transport = None  # tests put a fake transport here
     # Order, outermost first: TrustedHost, BodyLimit (400 KB, before anything reads a body; /login
     # has its own 8 KB limit inside Auth), SecurityHeaders (CSP nonce, no-store), CrossSiteGuard,
     # Auth (session into scope["state"]), Csrf (needs the session, so innermost).
     # add_middleware wraps, so the innermost layer is added first.
     app.add_middleware(CsrfMiddleware)
-    app.add_middleware(authn.AuthMiddleware, settings=settings, clock=clock, generation=generation)
+    app.add_middleware(authn.AuthMiddleware, settings=settings, clock=clock, generation=generation,
+                       db_path=path)
     app.add_middleware(CrossSiteGuardMiddleware,
                        allowed_hosts=[*DEFAULT_ALLOWED_HOSTS, *allowed_hosts])
     app.add_middleware(SecurityHeadersMiddleware)
@@ -256,12 +284,54 @@ def create_app(
     async def healthz():
         return PlainTextResponse("ok", headers=authn.NO_STORE)
 
+    def passkey_login_ready(request: Request) -> bool:
+        """True when the login page may offer "Use fingerprint": the package is there, the site has
+        a name (not an IP address) and at least one passkey exists."""
+        if not passkeys.AVAILABLE or passkeys.site(request.headers.get("host", ""), authn.is_https(request.scope)) is None:
+            return False
+        try:
+            conn = db.connect(path)
+            try:
+                return passkeys.count(conn) > 0
+            finally:
+                conn.close()
+        except Exception:  # noqa: BLE001
+            return False
+
     def login_form(request: Request, next_url: str, message: str | None, status_code: int,
                    headers: dict | None = None) -> Response:
         return templates.TemplateResponse(
-            request, "login.html", {"next": authn.safe_next(next_url), "message": message},
+            request, "login.html", {"next": authn.safe_next(next_url), "message": message,
+                                    "passkey_login": passkey_login_ready(request)},
             status_code=status_code, headers={**authn.NO_STORE, **(headers or {})},
         )
+
+    def start_session(request: Request, response: Response, *, sudo: bool = False) -> None:
+        """Set the cookies of a fresh login: the session, tied to this browser's device row, and
+        the long-lived device cookie that lets the row (and its lock) be found again next time.
+        If the device cannot be recorded the login still works, as a session without a device."""
+        now = clock()
+        device_id, lifetime = None, settings.lifetime_s
+        try:
+            conn = db.connect(path)
+            try:
+                known = devices.read_id(settings.secret, request.cookies.get(devices.COOKIE_NAME))
+                device_id = devices.attach(conn, known, request.headers.get("user-agent", ""), now, generation.value)
+                if sudo:
+                    devices.grant_sudo(conn, device_id, now)
+                lifetime = devices.lifetime_for(devices.get(conn, device_id), settings.lifetime_s)
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            auth_log.error("login: device not recorded (%s)", type(exc).__name__)
+            device_id, lifetime = None, settings.lifetime_s
+        secure = authn.is_https(request.scope)
+        value = authn.issue_session(settings, now, generation.value, device=device_id, lifetime_s=lifetime)
+        authn.set_session_cookie(response, value, secure=secure, max_age=lifetime)
+        if device_id is not None:
+            response.set_cookie(devices.COOKIE_NAME, devices.sign_id(settings.secret, device_id),
+                                max_age=devices.COOKIE_MAX_AGE, path="/", secure=secure, httponly=True,
+                                samesite="lax")
 
     def too_many(request: Request, next_url: str, ip: str) -> Response:
         left = limiter.blocked(ip)
@@ -324,8 +394,7 @@ def create_app(
             return too_many(request, next_url, ip)
         limiter.clear(ip)
         response = RedirectResponse(authn.safe_next(next_url), status_code=303, headers=authn.NO_STORE)
-        authn.set_session_cookie(response, authn.issue_session(settings, clock(), generation.value),
-                                 secure=authn.is_https(request.scope), max_age=settings.lifetime_s)
+        start_session(request, response, sudo=True)  # the password was just checked
         auth_log.info("login ok ip=%s", tag)
         return response
 
@@ -349,6 +418,10 @@ def create_app(
         response = RedirectResponse("/login", status_code=303, headers=authn.NO_STORE)
         authn.clear_session_cookie(response, secure=authn.is_https(request.scope))
         return response
+
+    account.install(app, templates=templates, get_conn=get_conn, settings=settings, limiter=limiter,
+                    generation=generation, clock=clock, bcrypt_gate=bcrypt_gate, db_path=path,
+                    start_session=start_session)
 
     @app.get("/")
     async def write_screen(request: Request, conn=Depends(get_conn)):
@@ -444,19 +517,29 @@ def create_app(
             request, "_entry_row.html", {"e": _entry_view(_load(conn, entry_id), tz.get_timezone(conn), conn)})
 
     @app.get("/entries")
-    async def entries_page(request: Request, before: str | None = None, conn=Depends(get_conn)):
+    async def entries_page(request: Request, before: str | None = None, day: str | None = None,
+                           conn=Depends(get_conn)):
         zone = tz.get_timezone(conn)
-        cursor = _parse_cursor(before) if before else None
-        rows = entries.list_entries(conn, LIST_LIMIT + 1, cursor)  # one extra row: are there more?
-        has_more = len(rows) > LIST_LIMIT
-        rows = rows[:LIST_LIMIT]
+        picked = _parse_day(day) if day else None  # a day tapped on the writing calendar
+        cursor = _parse_cursor(before) if before and not picked else None
+        if picked:
+            rows, has_more = entries.list_for_day(conn, picked.isoformat()), False
+        else:
+            rows = entries.list_entries(conn, LIST_LIMIT + 1, cursor)  # one extra row: are there more?
+            has_more = len(rows) > LIST_LIMIT
+            rows = rows[:LIST_LIMIT]
+        partial = bool(request.headers.get("HX-Request"))
         context = {
+            "day": picked.isoformat() if picked else None,
+            "day_label": f"{picked:%A} {picked.day} {picked:%B} {picked.year}" if picked else None,
+            "heat": None if partial else heatmap.build(
+                conn, datetime.now(timezone.utc).astimezone(ZoneInfo(zone)).date()),
             "rows": [_entry_view(r, zone, conn) for r in rows],
             "next_cursor": f"{rows[-1]['created_at']}_{rows[-1]['id']}" if has_more else None,
             "paged": cursor is not None,
             "page": "entries",
         }
-        template = "_entries_more.html" if request.headers.get("HX-Request") else "entries.html"
+        template = "_entries_more.html" if partial else "entries.html"
         return templates.TemplateResponse(request, template, context)
 
     @app.get("/entries/{entry_id}")
@@ -689,11 +772,123 @@ def create_app(
             raise HTTPException(status_code=404, detail="Note not found")
         return Response(status_code=200)
 
+    # ---- People ----
+
+    def _today(conn) -> date:
+        return datetime.now(timezone.utc).astimezone(ZoneInfo(tz.get_timezone(conn))).date()
+
+    PEOPLE_MESSAGES = {
+        "name": "Enter a name of up to 60 characters.",
+        "taken": "That name already belongs to someone else in your people. Merge the two instead.",
+        "full": "That is the most names one person can have. Remove one first.",
+        "relation": "Keep that to 80 characters or fewer.",
+        "same": "Pick a different person to merge into.",
+    }
+
+    def _people_done(target: str, problem: str | None = None) -> Response:
+        """After a People form: back to the page (303), with a reason code when it was refused."""
+        return RedirectResponse(f"{target}?problem={problem}" if problem else target, status_code=303)
+
+    def _person_or_404(conn, person_id: int) -> dict:
+        person = people.get(conn, person_id)
+        if person is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        return person
+
+    @app.get("/people")
+    async def people_page(request: Request, problem: str | None = None, conn=Depends(get_conn)):
+        context = people.overview(conn, _today(conn))
+        context.update(page="people", msg=PEOPLE_MESSAGES.get(problem or ""))
+        return templates.TemplateResponse(request, "people.html", context)
+
+    @app.post("/people")
+    async def people_add(name: str = Form(""), conn=Depends(get_conn)):
+        try:
+            person_id = people.add(conn, name)
+        except ValueError as exc:
+            return _people_done("/people", str(exc))
+        return _people_done(f"/people/{person_id}")
+
+    @app.get("/people/{person_id}")
+    async def person_page(request: Request, person_id: int, problem: str | None = None, conn=Depends(get_conn)):
+        person = people.detail(conn, person_id, _today(conn))
+        if person is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        return templates.TemplateResponse(request, "person.html", {
+            "page": "people", "p": person, "kinds": people.KINDS, "reads": list(people.READS.items()),
+            "msg": PEOPLE_MESSAGES.get(problem or ""),
+        })
+
+    @app.post("/people/{person_id}/confirm")
+    async def person_confirm(person_id: int, conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        people.set_status(conn, person_id, "confirmed")
+        return _people_done("/people")
+
+    @app.post("/people/{person_id}/ignore")
+    async def person_ignore(person_id: int, conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        people.set_status(conn, person_id, "ignored")
+        return _people_done("/people")
+
+    @app.post("/people/{person_id}/restore")
+    async def person_restore(person_id: int, conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        people.set_status(conn, person_id, "suggested")
+        return _people_done("/people")
+
+    @app.post("/people/{person_id}/merge")
+    async def person_merge(person_id: int, into: int = Form(...), conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        target = _person_or_404(conn, into)
+        if target["status"] != "confirmed":
+            raise HTTPException(status_code=422, detail="Merge into a confirmed person")
+        try:
+            people.merge(conn, person_id, into)
+        except ValueError as exc:
+            return _people_done(f"/people/{person_id}", str(exc))
+        return _people_done(f"/people/{into}")
+
+    @app.post("/people/{person_id}/details")
+    async def person_details(person_id: int, name: str = Form(""), relation: str = Form(""),
+                             kind: str = Form("person"), conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        try:
+            people.set_relation(conn, person_id, relation, kind)
+            people.rename(conn, person_id, name)
+        except ValueError as exc:
+            return _people_done(f"/people/{person_id}", str(exc) if str(exc) in PEOPLE_MESSAGES else "name")
+        return _people_done(f"/people/{person_id}")
+
+    @app.post("/people/{person_id}/alias")
+    async def person_alias_add(person_id: int, alias: str = Form(""), conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        try:
+            people.add_alias(conn, person_id, alias)
+        except ValueError as exc:
+            return _people_done(f"/people/{person_id}", str(exc))
+        return _people_done(f"/people/{person_id}")
+
+    @app.post("/people/{person_id}/alias/remove")
+    async def person_alias_remove(person_id: int, alias: str = Form(""), conn=Depends(get_conn)):
+        _person_or_404(conn, person_id)
+        people.remove_alias(conn, person_id, alias)
+        return _people_done(f"/people/{person_id}")
+
+    @app.post("/people/{person_id}/read")
+    async def person_read(person_id: int, read: str = Form(""), conn=Depends(get_conn)):
+        person = _person_or_404(conn, person_id)
+        if person["status"] != "confirmed" or read not in people.READS:
+            raise HTTPException(status_code=422, detail="Unknown answer")
+        people.set_read(conn, person_id, read, _today(conn))
+        return _people_done(f"/people/{person_id}")
+
     # ---- Ask My Journal ----
 
     @app.get("/ask")
-    async def ask_page(request: Request):
-        return templates.TemplateResponse(request, "ask.html", {"page": "ask"})
+    async def ask_page(request: Request, q: str = ""):
+        # `q` pre-fills the question box (the "Ask about ..." link on a person's page); nothing is sent.
+        return templates.TemplateResponse(request, "ask.html", {"page": "ask", "q": " ".join(q.split())[:500]})
 
     @app.post("/ask")
     async def ask_post(request: Request, question: str = Form(""), conn=Depends(get_conn)):

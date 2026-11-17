@@ -9,8 +9,9 @@ hmac.compare_digest. The header wins when present. Without it, a urlencoded form
 (bounded), its `csrf_token` field is checked, and the body is replayed downstream unchanged.
 Anything else gets 403 "Request refused." before the route runs, so nothing is written.
 
-POST /login is exempt: no session (and so no token) exists yet. It still passes the Origin /
-Sec-Fetch-Site guard (app/security.py), and the session cookie is SameSite=Lax.
+POST /login and the two passkey login steps are exempt: no session (and so no token) exists yet.
+They still pass the Origin / Sec-Fetch-Site guard (app/security.py), and the session cookie is
+SameSite=Lax.
 The CrossSiteGuard stays in front of this as a second layer.
 """
 import hmac
@@ -21,7 +22,7 @@ from starlette.responses import PlainTextResponse
 from app.headers import BODY_MAX, read_body, replaying
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-EXEMPT = frozenset({("POST", "/login")})
+EXEMPT = frozenset({("POST", "/login"), ("POST", "/login/passkey/options"), ("POST", "/login/passkey/verify")})
 HEADER = b"x-csrf-token"
 FIELD = "csrf_token"
 FORM_TYPE = "application/x-www-form-urlencoded"

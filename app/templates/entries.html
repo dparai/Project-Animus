@@ -8,6 +8,7 @@
   </header>
 
   <section class="list-region" aria-label="Your entries" tabindex="0">
+    {% if heat %}{% include "_heatmap.html" %}{% endif %}
     <ul id="entries" class="entries">
       {% include "_entries_more.html" %}
     </ul>
@@ -28,6 +29,53 @@
   .entries-title { font-size: var(--fs-title); line-height: 28px; font-weight: 600; margin: 0; }
   .entries-sub { color: var(--muted); font-size: 13px; line-height: 20px; margin: 0; }
   .list-region { position: relative; flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--radius-card); scrollbar-color: var(--control) transparent; scrollbar-width: thin; }
+
+  /* Writing calendar: a year of days. Colour means entries written, or the day's mood. */
+  .hm { --c: 15px; --g: 4px; margin: 0 0 12px; padding: 16px 16px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--glass-edge); }
+  .hm-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+  .hm-line { margin: 0; display: flex; flex-wrap: wrap; gap: 2px 16px; color: var(--muted); font-size: 13px; line-height: 20px; }
+  .hm-line b { color: var(--text); font-weight: 600; }
+  .hm-switch { display: flex; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); }
+  .hm-mode { min-height: 36px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; transition: color 180ms var(--ease), background 180ms var(--ease); }
+  .hm-mode:hover { color: var(--text); }
+  .hm-mode[aria-pressed="true"] { background: rgba(255, 255, 255, 0.14); color: var(--text); font-weight: 500; }
+  .hm-scroll { margin: 14px -16px 0; padding: 2px 16px 6px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); }
+  .hm-scroll::-webkit-scrollbar { display: none; }
+  .hm-scroll:focus-visible { outline-offset: -2px; border-radius: 12px; }
+  .hm-grid { display: grid; grid-auto-flow: column; grid-template-rows: 16px repeat(7, var(--c)); grid-auto-columns: var(--c); gap: var(--g); width: max-content; }
+  .hm-month { font-size: 11px; line-height: 16px; color: var(--faint); white-space: nowrap; overflow: visible; }
+  .hm-c { display: block; width: var(--c); height: var(--c); box-sizing: border-box; border-radius: 4px; background: rgba(255, 255, 255, 0.07); transition: background 260ms var(--ease), transform 160ms var(--ease), box-shadow 160ms var(--ease); }
+  .hm-future { background: transparent; }
+  .hm-c.l1 { background: rgba(255, 180, 107, 0.34); }
+  .hm-c.l2 { background: rgba(255, 180, 107, 0.56); }
+  .hm-c.l3 { background: rgba(255, 170, 100, 0.8); }
+  .hm-c.l4 { background: #ffb46b; box-shadow: 0 2px 10px -2px rgba(255, 125, 88, 0.7); }
+  .hm[data-mode="mood"] .hm-c.l1, .hm[data-mode="mood"] .hm-c.l2, .hm[data-mode="mood"] .hm-c.l3, .hm[data-mode="mood"] .hm-c.l4 { background: rgba(255, 255, 255, 0.3); box-shadow: none; }
+  .hm[data-mode="mood"] .hm-c.m-good { background: #8fd6a8; }
+  .hm[data-mode="mood"] .hm-c.m-okay { background: #e8d9b0; }
+  .hm[data-mode="mood"] .hm-c.m-rough { background: #ffa257; }
+  .hm[data-mode="mood"] .hm-c.m-low { background: #8f9bea; }
+  .hm[data-mode="mood"] .hm-c.m-sad { background: #ff7f8a; }
+  a.hm-c { position: relative; }
+  a.hm-c::after { content: ""; position: absolute; inset: -4px; } /* a larger place to tap */
+  a.hm-c:hover { transform: scale(1.25); }
+  a.hm-c:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .hm[data-mode] a.hm-c[aria-current="date"] { box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text); }
+  .hm-legend { margin-top: 8px; display: flex; justify-content: flex-end; color: var(--faint); font-size: 11px; line-height: 16px; }
+  .hm-key { margin: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; }
+  .hm-key .hm-c { --c: 11px; border-radius: 3px; }
+  .hm-key-item { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; }
+  .hm-key-mood, .hm[data-mode="mood"] .hm-key-count { display: none; }
+  .hm[data-mode="mood"] .hm-key-mood { display: flex; }
+  @media (min-width: 900px) { .hm { --c: 11px; --g: 3px; padding: 18px 22px 16px; } .hm-c { border-radius: 3px; } .hm-scroll { margin: 14px 0 0; padding: 2px 0 6px; -webkit-mask-image: none; mask-image: none; } }
+  @media (prefers-reduced-motion: no-preference) {
+    /* The one moment on this page: the year fills in from the oldest week to this one. */
+    .hm-grid .hm-c { animation: hm-in 520ms var(--ease) both; animation-delay: calc(var(--w, 0) * 11ms); }
+    @keyframes hm-in { from { opacity: 0; transform: scale(0.3); } to { opacity: 1; transform: none; } }
+  }
+  @media (prefers-reduced-motion: reduce) { .hm-c, .hm-mode { transition: none; } a.hm-c:hover { transform: none; } }
+  .day-filter { list-style: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 16px; padding: 2px 4px 2px 16px; color: var(--muted); }
+  .day-filter b { color: var(--text); font-weight: 500; }
 
   .entries { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .entry { display: grid; grid-template-areas: "head actions" "text text" "links links"; grid-template-columns: 1fr auto; gap: 4px 8px; min-height: var(--row-height); box-sizing: border-box; padding: 12px 8px 12px 16px; background: var(--surface); border-radius: 16px; }
@@ -93,7 +141,7 @@
     var empty = document.getElementById('empty');
     if (!list || !empty) { return; }
     function sync() {
-      var has = list.querySelector('.entry') || list.querySelector('.btn-older');
+      var has = list.querySelector('.entry') || list.querySelector('.btn-older') || list.querySelector('.day-filter');
       empty.hidden = !!has;
       if (!has) {
         var end = document.getElementById('end');
@@ -101,6 +149,35 @@
       }
     }
     new MutationObserver(sync).observe(list, { childList: true });
+  })();
+  // Writing calendar: open on this week, switch the colours, mark the day that was picked.
+  (function () {
+    var map = document.getElementById('heatmap');
+    if (!map) { return; }
+    var scroller = document.getElementById('hm-scroll');
+    scroller.scrollLeft = scroller.scrollWidth;
+    map.addEventListener('click', function (e) {
+      var mode = e.target.closest('.hm-mode');
+      if (mode) {
+        map.setAttribute('data-mode', mode.getAttribute('data-mode'));
+        map.querySelectorAll('.hm-mode').forEach(function (b) { b.setAttribute('aria-pressed', String(b === mode)); });
+        try { localStorage.setItem('animus-calendar', mode.getAttribute('data-mode')); } catch (err) {}
+        return;
+      }
+      var day = e.target.closest('a.hm-c');
+      if (day) {
+        map.querySelectorAll('[aria-current="date"]').forEach(function (c) { c.removeAttribute('aria-current'); });
+        day.setAttribute('aria-current', 'date');
+      }
+    });
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('.day-clear')) {
+        map.querySelectorAll('[aria-current="date"]').forEach(function (c) { c.removeAttribute('aria-current'); });
+      }
+    });
+    try {
+      if (localStorage.getItem('animus-calendar') === 'mood') { map.querySelector('.hm-mode[data-mode="mood"]').click(); }
+    } catch (err) {}
   })();
 </script>
 {% endblock %}

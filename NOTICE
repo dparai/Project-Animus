@@ -10,4 +10,5 @@ Third-party files served locally from app/static/ (sources and checksums: app/st
   Copyright (c) The Instrument Serif Project Authors. License: SIL Open Font License 1.1.
 
 Python dependencies are listed in requirements.txt and keep their own licenses.
+Among them: webauthn (BSD 3-Clause), cryptography (Apache 2.0 or BSD 3-Clause), cbor2 (MIT), pyOpenSSL (Apache 2.0).
 Project Animus itself is MIT licensed (see LICENSE).

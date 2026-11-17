@@ -171,9 +171,69 @@ CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     aliases TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'suggested',
+    kind TEXT NOT NULL DEFAULT 'person',
+    relation TEXT NOT NULL DEFAULT '',
+    own_read TEXT NULL,
+    own_read_at TEXT NULL,
+    read_note_id INTEGER NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    summary_quotes TEXT NOT NULL DEFAULT '[]',
+    summary_at TEXT NULL,
+    summary_mentions INTEGER NOT NULL DEFAULT 0,
+    summary_note_id INTEGER NULL
+);
+CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    last_login_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    gen INTEGER NOT NULL,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    lock_mode TEXT NOT NULL DEFAULT 'none' CHECK (lock_mode IN ('none','passkey','password')),
+    lock_after_s INTEGER NOT NULL DEFAULT 60,
+    locked INTEGER NOT NULL DEFAULT 0,
+    last_active_at INTEGER NOT NULL DEFAULT 0,
+    sudo_until INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS passkeys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    credential_id BLOB NOT NULL UNIQUE,
+    public_key BLOB NOT NULL,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    label TEXT NOT NULL DEFAULT '',
+    device_id TEXT NULL,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER NULL
+);
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT NULL,
+    endpoint TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    last_ok_at INTEGER NULL,
+    failures INTEGER NOT NULL DEFAULT 0
 );
 """
+
+# People columns added after the table first shipped: (name, declaration). Fixed text, never user input.
+PEOPLE_COLUMNS = (
+    ('status', "TEXT NOT NULL DEFAULT 'suggested'"),
+    ('kind', "TEXT NOT NULL DEFAULT 'person'"),
+    ('relation', "TEXT NOT NULL DEFAULT ''"),
+    ('own_read', 'TEXT NULL'),
+    ('own_read_at', 'TEXT NULL'),
+    ('read_note_id', 'INTEGER NULL'),
+    ('summary', "TEXT NOT NULL DEFAULT ''"),
+    ('summary_quotes', "TEXT NOT NULL DEFAULT '[]'"),
+    ('summary_at', 'TEXT NULL'),
+    ('summary_mentions', 'INTEGER NOT NULL DEFAULT 0'),
+    ('summary_note_id', 'INTEGER NULL'),
+)
 
 
 def connect(path: str) -> sqlite3.Connection:
@@ -200,4 +260,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE conversations ADD COLUMN summary_attempts INTEGER NOT NULL DEFAULT 0")
     if "last_attempt_at" not in columns:
         conn.execute("ALTER TABLE conversations ADD COLUMN last_attempt_at TEXT NULL")
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(people)")}
+    for name, decl in PEOPLE_COLUMNS:  # database created before the People page
+        if name not in columns:
+            conn.execute(f"ALTER TABLE people ADD COLUMN {name} {decl}")
     conn.commit()

@@ -172,3 +172,23 @@ The readable copy relies on rclone's HTML import (`--drive-import-formats html -
    On a new machine, recreate the two remotes with the same Drive login and **the same passphrase and salt password**, then run the same commands.
 2. Check the copy: `sqlite3 <RESTORE_FOLDER>/animus-<YYYYMMDD-HHMMSS>.db "select count(*) from entries"`.
 3. Stop the app (`sudo systemctl stop animus`), keep the old file (`mv data/vault.db data/vault.db.old`), put the copy at `/opt/animus/data/vault.db` (owner `animus`, mode 600), delete any stale `vault.db-wal` / `vault.db-shm`, then `sudo systemctl start animus`.
+
+## App lock, passkeys and the daily reminder
+
+Two new packages (`webauthn`, `cryptography`, plus what they pull in) are in `requirements.txt`:
+
+    sudo -u animus bash -c "cd /opt/animus && .venv/bin/pip install -r requirements.txt"
+
+The app starts without them too: passkeys and the reminder are then simply not offered.
+
+Reminder key (once; prints only what it did):
+
+    sudo -u animus bash -c "cd /opt/animus && .venv/bin/python -m scripts.make_push_key"
+
+Then restart only `animus`. The new tables (`devices`, `passkeys`, `push_subscriptions`) are created at start.
+
+Notes:
+- Passkeys are tied to the site name, so they work on the HTTPS address (and on `localhost` through a tunnel), never on a bare IP address.
+- Sessions that existed before this update keep working for their 24 hours but cannot set a lock; logging in again gives the device its row.
+- The reminder needs outbound HTTPS to `fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com` and `*.notify.windows.com`.
+- On iPhone the reminder works only after Animus is added to the Home Screen (iOS 16.4 or later).

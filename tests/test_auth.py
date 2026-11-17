@@ -117,7 +117,8 @@ def test_right_password_sets_cookie_flags(db_path):
     app = make_app(db_path)
     r = post_login(anon_client(app))
     assert r.status_code == 303 and r.headers["location"] == "/"
-    (cookie,) = cookie_header(r)
+    cookie, device_cookie = cookie_header(r)  # the session, then the long-lived device id
+    assert device_cookie.lower().startswith("animus_device=") and "httponly" in device_cookie.lower()
     flags = [p.strip().lower() for p in cookie.split(";")]
     assert flags[0].startswith(auth.COOKIE_NAME + "=")
     assert "httponly" in flags and "samesite=lax" in flags and "max-age=86400" in flags and "path=/" in flags

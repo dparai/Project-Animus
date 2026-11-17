@@ -15,6 +15,7 @@
     .pw-toggle:hover { color: var(--text); }
     .login-msg { margin-top: 12px; align-self: flex-start; }
     .login-submit { margin-top: 24px; width: 100%; }
+    .login-passkey { margin-top: 10px; width: 100%; }
     .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
     @media (prefers-reduced-motion: reduce) { .pw-toggle { transition: none; } }
   </style>
@@ -34,8 +35,13 @@
       </div>
       {% if message %}<p class="msg msg-error login-msg" id="login-msg" role="alert">{{ message }}</p>{% endif %}
       <button class="btn-main login-submit" type="submit">Log in</button>
+      {% if passkey_login %}
+      <button class="btn-quiet login-passkey" type="button" id="login-passkey" hidden>Use fingerprint instead</button>
+      <p class="msg msg-error login-msg" id="passkey-msg" role="alert" hidden></p>
+      {% endif %}
     </form>
   </main>
+  {% if passkey_login %}<script src="/static/passkey.js?v=1"></script>{% endif %}
   <script nonce="{{ csp_nonce }}">
     (function () {
       var field = document.getElementById('password');
@@ -47,6 +53,22 @@
         toggle.setAttribute('aria-pressed', show ? 'true' : 'false');
         field.focus();
       });
+      // Passkey login: shown only where the browser can do it.
+      var key = document.getElementById('login-passkey');
+      var api = window.AnimusPasskey;
+      if (key && api && api.supported()) {
+        var note = document.getElementById('passkey-msg');
+        key.hidden = false;
+        key.addEventListener('click', function () {
+          key.disabled = true; note.hidden = true;
+          api.check('/login/passkey', '', { next: document.querySelector('input[name="next"]').value })
+            .then(function (j) {
+              if (j && j.ok) { window.location.replace(j.next || '/'); return; }
+              key.disabled = false; note.textContent = (j && j.message) || 'That didn\'t work. Use your password.'; note.hidden = false;
+            })
+            .catch(function () { key.disabled = false; });
+        });
+      }
     })();
   </script>
 {% endblock %}

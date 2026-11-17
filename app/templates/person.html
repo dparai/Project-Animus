@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}{{ p.name }} · People · Animus{% endblock %}
+{% block content %}
+<div class="page ppl person">
+  <a class="back" href="/people"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg>People</a>
+
+  <header class="who">
+    <span class="av av-xl tone-{{ p.tone }}" aria-hidden="true">{{ p.initial }}</span>
+    <div class="who-text">
+      <h1 class="who-name">{{ p.name }}</h1>
+      <p class="who-meta num">
+        {% if p.relation %}<span>{{ p.relation }}</span>{% endif %}
+        <span>{{ p.count }} {{ 'entry' if p.count == 1 else 'entries' }}</span>
+        {% if p.since %}<span>since {{ p.since }}</span>{% endif %}
+      </p>
+      {% if p.aliases %}<p class="who-also">Also written as {{ p.aliases|join(', ') }}</p>{% endif %}
+    </div>
+  </header>
+
+  {% if msg %}<p class="msg msg-error ppl-msg" role="alert">{{ msg }}</p>{% endif %}
+
+  {% if p.status != 'confirmed' %}
+  <section class="panel pending">
+    <p class="pending-text">{% if p.status == 'ignored' %}You ignored this name.{% else %}This name is waiting for your answer.{% endif %} It is not used in search or by the Counselor.</p>
+    <form method="post" action="/people/{{ p.id }}/confirm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn-main pad" type="submit">Add to your people</button>
+    </form>
+  </section>
+  {% endif %}
+
+  <div class="acts">
+    <a class="btn-quiet link-btn-a" href="/ask?q={{ ('What have I written about ' ~ p.name ~ ' lately?')|urlencode }}">Ask about {{ p.name }}</a>
+    <a class="btn-quiet link-btn-a" href="/">Write an entry</a>
+  </div>
+
+  {% if p.status == 'confirmed' %}
+  <section class="panel">
+    <h2 class="sec-title">How you have been writing about them</h2>
+    {% if p.summary %}
+    <p class="lately">{{ p.summary }}</p>
+    {% if p.summary_quotes %}
+    <ul class="proof">
+      {% for q in p.summary_quotes %}
+      <li><a href="/entries?day={{ q.date }}">&ldquo;{{ q.quote }}&rdquo;</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <p class="hint">Written by the AI from your entries. Each quote was checked against the entry it comes from.</p>
+    {% else %}
+    <p class="hint">A short note appears here once {{ p.name }} has come up in a few more entries.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2 class="sec-title" id="read-title">How are things with {{ p.name }} right now?</h2>
+    <form class="read" method="post" action="/people/{{ p.id }}/read" aria-labelledby="read-title">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {% for key, label in reads %}
+      <button class="read-btn" type="submit" name="read" value="{{ key }}" aria-pressed="{{ 'true' if p.own_read == key else 'false' }}">{{ label|capitalize }}</button>
+      {% endfor %}
+    </form>
+    <p class="hint">{% if p.own_read_at %}You answered on {{ p.own_read_at }}. {% endif %}Your entries cannot say this, so the answer is yours. It is kept as a note the Counselor reads.</p>
+  </section>
+  {% endif %}
+
+  {% if p.count %}
+  <section class="panel">
+    <h2 class="sec-title">Your mood when they come up</h2>
+    <ul class="bars">
+      {% for b in p.by_mood %}
+      <li><span class="bar-label">{{ b.label }}</span><span class="bar-track"><i class="bar-fill m-{{ b.key }}" style="--w:{{ b.share }}%"></i></span><span class="bar-n num">{{ b.count }}</span></li>
+      {% endfor %}
+    </ul>
+    {% if p.mood_share is not none and p.mood_share_all is not none %}
+    <p class="hint">Good or okay in {{ p.mood_share }}% of the entries with {{ p.name }}, and in {{ p.mood_share_all }}% of your whole journal. Counted from the moods you set.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if p.companions %}
+  <section class="panel">
+    <h2 class="sec-title">Often in the same entries</h2>
+    <ul class="chips">
+      {% for c in p.companions %}
+      <li><a class="chip-p" href="/people/{{ c.id }}"><span class="av av-s tone-{{ c.tone }}" aria-hidden="true">{{ c.initial }}</span>{{ c.name }}<span class="num chip-n">{{ c.count }}</span></a></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <section class="tl-sec">
+    <h2 class="sec-title">When they appear</h2>
+    {% if p.timeline %}
+    <ol class="tl">
+      {% for t in p.timeline %}
+      <li class="tl-item" style="--i:{{ loop.index0 if loop.index0 < 12 else 12 }}">
+        <a class="tl-link" href="/entries?day={{ t.date }}">
+          <span class="tl-when num"><time datetime="{{ t.date }}">{{ t.when }}</time>{% if t.mood_label %}<span class="tl-mood m-{{ t.mood }}">{{ t.mood_label }}</span>{% endif %}</span>
+          <span class="tl-text">{{ t.text }}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="hint">No entry mentions {{ p.name }} yet.</p>
+    {% endif %}
+  </section>
+
+  <details class="fold edit">
+    <summary>Edit {{ p.name }}</summary>
+    <form class="edit-form" method="post" action="/people/{{ p.id }}/details">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="lbl" for="p-name">Name</label>
+      <input class="text-in" id="p-name" type="text" name="name" value="{{ p.name }}" maxlength="60" required autocomplete="off">
+      <label class="lbl" for="p-rel">Who are they to you?</label>
+      <input class="text-in" id="p-rel" type="text" name="relation" value="{{ p.relation }}" maxlength="80" autocomplete="off" placeholder="Sister, manager, old friend">
+      <label class="lbl" for="p-kind">This is a</label>
+      <select class="select" id="p-kind" name="kind">
+        {% for k in kinds %}<option value="{{ k }}"{% if p.kind == k %} selected{% endif %}>{{ k|capitalize }}</option>{% endfor %}
+      </select>
+      <button class="btn-main pad" type="submit">Save</button>
+    </form>
+
+    <h3 class="lbl">Other names for {{ p.name }}</h3>
+    <p class="hint">Nicknames and other spellings. Entries that use any of them count for {{ p.name }}.</p>
+    {% if p.aliases %}
+    <ul class="alias">
+      {% for a in p.aliases %}
+      <li>
+        <form method="post" action="/people/{{ p.id }}/alias/remove">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="alias" value="{{ a }}">
+          <span>{{ a }}</span><button class="alias-x" type="submit" aria-label="Remove the name {{ a }}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg></button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <form class="fold-form" method="post" action="/people/{{ p.id }}/alias">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="sr-only" for="p-alias">Another name</label>
+      <input class="text-in" id="p-alias" type="text" name="alias" maxlength="60" required autocomplete="off" placeholder="Another name">
+      <button class="btn-quiet" type="submit">Add name</button>
+    </form>
+
+    {% if p.merge_targets %}
+    <h3 class="lbl">Same person as someone else?</h3>
+    <form class="fold-form" method="post" action="/people/{{ p.id }}/merge">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="sr-only" for="p-into">Merge {{ p.name }} into</label>
+      <select class="select" id="p-into" name="into" required>
+        {% for m in p.merge_targets %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}
+      </select>
+      <button class="btn-quiet" type="submit">Merge into them</button>
+    </form>
+    {% endif %}
+
+    {% if p.status != 'ignored' %}
+    <form class="remove" method="post" action="/people/{{ p.id }}/ignore">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="act danger" type="submit">Remove {{ p.name }} from your people</button>
+    </form>
+    {% endif %}
+  </details>
+</div>
+{% include "_people_style.html" %}
+{% endblock %}

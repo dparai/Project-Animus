@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Settings · Animus{% endblock %}
+{% block content %}
+<div class="page set" id="settings" data-push-key="{{ push_key }}" data-subscribed="{{ '1' if subscribed else '0' }}">
+  <header class="set-head">
+    <h1 class="set-title">Settings</h1>
+    <p class="set-sub">How this device locks, your daily reminder, and where you are logged in.</p>
+  </header>
+
+  {% if problem %}<p class="msg msg-error set-msg" role="alert">{{ problem }}</p>{% endif %}
+  {% if done %}<p class="msg msg-saved set-msg" role="status">Saved.</p>{% endif %}
+
+  <section class="panel set-panel" aria-labelledby="lock-h">
+    <h2 class="sec-title" id="lock-h">App lock</h2>
+    {% if not device %}
+    <p class="hint">Log out and log in again on this device to set up its lock.</p>
+    {% else %}
+    <p class="hint">For this device only ({{ device.label }}). The lock is kept by the server: a locked device gets nothing until it is opened again.</p>
+    {% if not sudo %}
+    <form class="set-row" method="post" action="/settings/confirm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input class="visually-hidden" type="text" name="username" value="owner" autocomplete="username" tabindex="-1" aria-hidden="true">
+      <label class="set-label" for="confirm-password">Enter your password to change the lock</label>
+      <div class="set-inline">
+        <input class="login-field set-field" id="confirm-password" name="password" type="password" autocomplete="current-password" maxlength="200" required>
+        <button class="btn-quiet" type="submit">Continue</button>
+      </div>
+      <p class="hint">Now: {{ {'none': 'no lock', 'passkey': 'fingerprint or face', 'password': 'password'}[device.lock_mode] }}{% if device.lock_mode != 'none' %}, {{ dict(timers)[device.lock_after_s]|lower }} in the background{% endif %}.</p>
+    </form>
+    {% else %}
+    <form class="set-form" method="post" action="/settings/lock">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <fieldset class="choices">
+        <legend class="visually-hidden">How to open the app</legend>
+        <input class="visually-hidden" type="radio" name="mode" id="mode-none" value="none"{% if device.lock_mode == 'none' %} checked{% endif %}>
+        <label class="choice" for="mode-none"><span class="choice-name">No lock</span><span class="choice-note">Opens straight away while you are logged in.</span></label>
+        <input class="visually-hidden" type="radio" name="mode" id="mode-passkey" value="passkey"{% if device.lock_mode == 'passkey' %} checked{% endif %}{% if not passkeys %} disabled{% endif %}>
+        <label class="choice" for="mode-passkey"><span class="choice-name">Fingerprint or face</span><span class="choice-note">{% if passkeys %}Your phone checks it is you. The password still works.{% else %}Add a fingerprint below first.{% endif %}</span></label>
+        <input class="visually-hidden" type="radio" name="mode" id="mode-password" value="password"{% if device.lock_mode == 'password' %} checked{% endif %}>
+        <label class="choice" for="mode-password"><span class="choice-name">Password</span><span class="choice-note">Type your journal password each time.</span></label>
+      </fieldset>
+      <div class="set-inline">
+        <label class="set-label" for="after">Lock when in the background</label>
+        <select class="set-select" id="after" name="after">
+          {% for seconds, label in timers %}<option value="{{ seconds }}"{% if device.lock_after_s == seconds %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <button class="btn-main pad" type="submit">Save lock</button>
+    </form>
+
+    <h3 class="sub-title">Fingerprints and passkeys</h3>
+    {% if passkeys %}
+    <ul class="rows">
+      {% for k in passkeys %}
+      <li class="row">
+        <div class="row-text"><span class="row-name">{{ k.label or 'Passkey' }}</span><span class="row-note num">Added {{ k.added }} · last used {{ k.used }}</span></div>
+        <form method="post" action="/settings/passkeys/{{ k.id }}/remove">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="act" type="submit" aria-label="Remove passkey {{ k.label }}">Remove</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if passkeys_ready %}
+    <button class="btn-quiet" type="button" id="passkey-add" hidden>Add this device's fingerprint</button>
+    <p class="hint" id="passkey-none">This browser cannot use fingerprints here.</p>
+    <p class="msg msg-error" id="passkey-msg" role="alert" hidden></p>
+    <p class="hint">A passkey can also log you in without the password.</p>
+    {% else %}
+    <p class="hint">Fingerprints are not available on this server address.</p>
+    {% endif %}
+    {% endif %}
+    {% endif %}
+  </section>
+
+  <section class="panel set-panel" aria-labelledby="remind-h">
+    <h2 class="sec-title" id="remind-h">Daily reminder</h2>
+    <p class="hint">One notification a day, only if you have not written yet. It never contains anything from your journal.</p>
+    <form class="set-form" method="post" action="/settings/reminder">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="set-inline">
+        <label class="switch"><input type="checkbox" name="on" value="1"{% if reminder_on %} checked{% endif %}><span>Remind me</span></label>
+        <label class="visually-hidden" for="remind-time">Time</label>
+        <input class="set-select num" id="remind-time" type="time" name="time" value="{{ reminder_time }}" required>
+        <button class="btn-quiet" type="submit">Save</button>
+      </div>
+    </form>
+    {% if not push_key %}
+    <p class="hint">Reminders are not set up on the server yet.</p>
+    {% elif not device %}
+    <p class="hint">Log out and log in again on this device to receive reminders here.</p>
+    {% else %}
+    <div class="set-inline">
+      <button class="btn-quiet" type="button" id="push-on" hidden>Turn on notifications on this device</button>
+      <button class="btn-quiet" type="button" id="push-test" hidden>Send a test</button>
+      <button class="act" type="button" id="push-off" hidden>Turn off here</button>
+    </div>
+    <p class="hint" id="push-note">This browser cannot show notifications here. On iPhone, add Animus to the Home Screen first (Share, then Add to Home Screen) and open it from there.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel set-panel" aria-labelledby="dev-h">
+    <h2 class="sec-title" id="dev-h">Devices</h2>
+    <p class="hint">Log out (in the menu) signs out every device at once.</p>
+    <ul class="rows">
+      {% for d in devices %}
+      <li class="row">
+        <div class="row-text">
+          <span class="row-name">{{ d.label }}{% if d.here %} <span class="pill">This device</span>{% endif %}</span>
+          <span class="row-note num">{% if d.signed_in %}Logged in · {{ d.mode_label }} · last seen {{ d.seen }}{% else %}Logged out · last seen {{ d.seen }}{% endif %}</span>
+        </div>
+        {% if d.signed_in and not d.here %}
+        <form method="post" action="/settings/devices/{{ d.id }}/signout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="act" type="submit" aria-label="Sign out {{ d.label }}">Sign out</button>
+        </form>
+        {% endif %}
+      </li>
+      {% else %}
+      <li class="row"><div class="row-text"><span class="row-note">No devices recorded yet. They appear after the next login.</span></div></li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+
+<style>
+  .set { gap: 14px; padding-bottom: 24px; }
+  .set-head { display: grid; gap: 2px; padding-bottom: 4px; }
+  .set-title { font-size: var(--fs-title); line-height: 28px; font-weight: 600; margin: 0; }
+  .set-sub { color: var(--muted); font-size: 13px; line-height: 20px; margin: 0; max-width: 62ch; }
+  .set-msg { align-self: flex-start; }
+  .set-panel { display: grid; gap: 14px; }
+  .set-panel .hint { max-width: 62ch; line-height: 18px; }
+  .sec-title { margin: 0; font-size: var(--fs-section); line-height: 22px; font-weight: 600; }
+  .sub-title { margin: 6px 0 0; font-size: 14px; line-height: 20px; font-weight: 600; }
+  .set-form, .set-row { display: grid; gap: 12px; margin: 0; }
+  .set-label { font-weight: 500; }
+  .set-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .set-field { flex: 1 1 200px; min-height: 44px; padding: 0 16px; border-radius: 14px; color: var(--text); font: inherit; font-size: 16px; box-sizing: border-box; }
+  .set-select { min-height: 44px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--border); background: rgba(255, 255, 255, 0.07); color: var(--text); font: inherit; font-size: 16px; color-scheme: dark; }
+  .set-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .pad { padding: 0 24px; justify-self: start; }
+  .choices { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .choice { display: grid; gap: 2px; padding: 12px 16px; border-radius: 16px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border); cursor: pointer; transition: background 180ms var(--ease), border-color 180ms var(--ease); }
+  .choice:hover { background: rgba(255, 255, 255, 0.1); }
+  .choice-name { font-weight: 600; }
+  .choice-note { color: var(--muted); font-size: 13px; line-height: 18px; }
+  input:checked + .choice { background: rgba(255, 180, 107, 0.16); border-color: var(--accent); }
+  input:focus-visible + .choice { outline: 2px solid var(--text); outline-offset: 2px; }
+  input:disabled + .choice { opacity: 0.55; cursor: not-allowed; }
+  .switch { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 500; cursor: pointer; }
+  .switch input { width: 20px; height: 20px; accent-color: var(--accent); }
+  .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; padding: 8px 8px 8px 16px; border-radius: 16px; background: rgba(255, 255, 255, 0.06); }
+  .row form { margin: 0; }
+  .row-text { display: grid; gap: 2px; min-width: 0; }
+  .row-name { font-weight: 500; overflow-wrap: anywhere; }
+  .row-note { color: var(--muted); font-size: 13px; line-height: 18px; }
+  .pill { display: inline-block; margin-left: 6px; padding: 0 10px; border-radius: 999px; background: var(--pill-positive-bg); color: var(--pill-positive-ink); font-size: var(--fs-small); line-height: 20px; font-weight: 500; }
+  .act { min-height: 44px; min-width: 44px; padding: 0 14px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); font: inherit; cursor: pointer; transition: background 160ms ease, color 160ms ease; }
+  .act:hover { background: rgba(255, 255, 255, 0.1); color: var(--text); }
+  @media (prefers-reduced-motion: reduce) { .choice, .act { transition: none; } }
+</style>
+<script src="/static/passkey.js?v=1" defer></script>
+<script src="/static/settings.js?v=1" defer></script>
+{% endblock %}

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}People · Animus{% endblock %}
+{% block content %}
+<div class="page ppl" id="people" data-view="map">
+  <header class="ppl-head">
+    <div>
+      <h1 class="ppl-title">People</h1>
+      <p class="ppl-sub">
+        {% if confirmed %}{{ confirmed|length }} {{ 'person' if confirmed|length == 1 else 'people' }} in your journal. The ones you write about most sit nearest to you.
+        {% else %}The people you write about gather here once you confirm them.{% endif %}
+      </p>
+    </div>
+    {% if confirmed %}
+    <div class="seg" role="group" aria-label="Show people as">
+      <button type="button" class="seg-btn" data-view="map" aria-pressed="true">Map</button>
+      <button type="button" class="seg-btn" data-view="list" aria-pressed="false">List</button>
+    </div>
+    {% endif %}
+  </header>
+
+  {% if msg %}<p class="msg msg-error ppl-msg" role="alert">{{ msg }}</p>{% endif %}
+
+  {% if confirmed %}
+  <section class="orbit-wrap" aria-label="Map of the people in your journal">
+    <div class="orbit">
+      {% for size in orbit.rings %}<i class="orbit-ring" style="--d:{{ size }}%; --n:{{ loop.index0 }}" aria-hidden="true"></i>{% endfor %}
+      <span class="you" aria-hidden="true">You</span>
+      {% for p in orbit.people %}
+      <a class="orb r{{ p.ring }}{% if not p.recent %} quiet{% endif %}" href="/people/{{ p.id }}" style="--x:{{ p.x }}%; --y:{{ p.y }}%; --i:{{ p.slot }}" aria-label="{{ p.name }}, in {{ p.count }} {{ 'entry' if p.count == 1 else 'entries' }}">
+        <span class="av tone-{{ p.tone }}" aria-hidden="true">{{ p.initial }}</span>
+        <span class="orb-name" aria-hidden="true">{{ p.name }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% if orbit.rest %}<p class="hint orbit-rest">{{ orbit.rest }} more in the list.</p>{% endif %}
+  </section>
+
+  <ul class="plist" aria-label="People, most written about first">
+    {% for p in confirmed %}
+    <li>
+      <a class="prow" href="/people/{{ p.id }}">
+        <span class="av tone-{{ p.tone }}" aria-hidden="true">{{ p.initial }}</span>
+        <span class="prow-main">
+          <span class="prow-name">{{ p.name }}</span>
+          <span class="prow-meta num">{% if p.relation %}{{ p.relation }} · {% endif %}{{ p.count }} {{ 'entry' if p.count == 1 else 'entries' }}{% if p.last %} · last {{ p.last }}{% endif %}</span>
+        </span>
+        <svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5l4.5 4.5L6 12.5"/></svg>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if suggested %}
+  <section class="queue" aria-labelledby="queue-title">
+    <h2 class="sec-title" id="queue-title">Names waiting for your answer</h2>
+    <p class="hint">Animus found these in your entries. Nothing counts as a person until you say so.</p>
+    <ul class="qlist">
+      {% for s in suggested %}
+      <li class="qcard" style="--i:{{ loop.index0 }}">
+        <div class="q-top">
+          <span class="av tone-{{ s.tone }}" aria-hidden="true">{{ s.initial }}</span>
+          <div class="q-who">
+            <span class="q-name">{{ s.name }}</span>
+            <span class="q-count num">in {{ s.count }} {{ 'entry' if s.count == 1 else 'entries' }}</span>
+          </div>
+        </div>
+        {% if s.snippet %}<p class="q-quote">{{ s.snippet }}</p>{% endif %}
+        <div class="q-acts">
+          <form method="post" action="/people/{{ s.id }}/confirm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn-main q-add" type="submit" aria-label="Add {{ s.name }} to your people">Add</button>
+          </form>
+          <form method="post" action="/people/{{ s.id }}/ignore">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn-quiet" type="submit" aria-label="{{ s.name }} is not a person, ignore">Not a person</button>
+          </form>
+          {% if confirmed %}
+          <details class="q-same">
+            <summary class="btn-quiet">Same as…</summary>
+            <form class="q-merge" method="post" action="/people/{{ s.id }}/merge">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <label class="sr-only" for="into-{{ s.id }}">{{ s.name }} is the same person as</label>
+              <select class="select" id="into-{{ s.id }}" name="into" required>
+                {% for p in confirmed %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+              </select>
+              <button class="btn-quiet" type="submit">Merge</button>
+            </form>
+          </details>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% elif not confirmed %}
+  <div class="empty">
+    <p class="empty-title">No names yet.</p>
+    <p class="empty-text">After you write a few entries, the people in them show up here for you to confirm.</p>
+    <a class="textlink" href="/">Write an entry</a>
+  </div>
+  {% endif %}
+
+  <section class="extras">
+    <details class="fold">
+      <summary>Add someone yourself</summary>
+      <form class="fold-form" method="post" action="/people">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="sr-only" for="new-name">Name</label>
+        <input class="text-in" id="new-name" type="text" name="name" maxlength="60" required autocomplete="off" placeholder="Their name">
+        <button class="btn-quiet" type="submit">Add</button>
+      </form>
+    </details>
+    {% if ignored %}
+    <details class="fold">
+      <summary>Ignored names ({{ ignored|length }})</summary>
+      <ul class="ign">
+        {% for g in ignored %}
+        <li>
+          <span>{{ g.name }}</span>
+          <form method="post" action="/people/{{ g.id }}/restore">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="act" type="submit" aria-label="Bring back {{ g.name }}">Bring back</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </section>
+</div>
+
+{% include "_people_style.html" %}
+<script nonce="{{ csp_nonce }}">
+  // Map or list: remembered on this device.
+  (function () {
+    var page = document.getElementById('people');
+    var buttons = page.querySelectorAll('.seg-btn');
+    function show(view) {
+      page.setAttribute('data-view', view);
+      buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === view)); });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        show(b.getAttribute('data-view'));
+        try { localStorage.setItem('animus-people', b.getAttribute('data-view')); } catch (err) {}
+      });
+    });
+    try { if (localStorage.getItem('animus-people') === 'list') { show('list'); } } catch (err) {}
+  })();
+</script>
+{% endblock %}

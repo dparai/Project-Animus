@@ -36,6 +36,9 @@ def content_security_policy(nonce: str) -> str:
         "font-src 'self'",
         "img-src 'self' data:",
         "connect-src 'self'",
+        # Installed app: the web manifest and the service worker come from /static/ only.
+        "manifest-src 'self'",
+        "worker-src 'self'",
         "object-src 'none'",
         "base-uri 'self'",
         "form-action 'self'",

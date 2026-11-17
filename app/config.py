@@ -18,6 +18,11 @@ DEFAULT_LLM_MODEL_INTERACTIVE = "nvidia/nemotron-3-ultra-550b-a55b,nvidia/nemotr
 DEFAULT_LLM_MODEL_ESCALATE = "nvidia/nemotron-3-ultra-550b-a55b"
 
 
+# Backup provider (OpenRouter free models), tried only after the main models hit a rate limit or outage.
+DEFAULT_BACKUP_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_BACKUP_MODEL = "google/gemma-4-31b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-26b-a4b-it:free"
+
+
 def parse_models(value: str) -> tuple[str, ...]:
     """Split a comma-separated model list: strip names, drop empties and duplicates, keep order."""
     seen: dict[str, None] = {}
@@ -35,6 +40,13 @@ class LlmSettings:
     model: str  # raw configured value; may be a comma-separated priority list
     model_interactive: str = DEFAULT_LLM_MODEL_INTERACTIVE  # same format, for interactive calls
     model_escalate: str = DEFAULT_LLM_MODEL_ESCALATE  # first entry is the escalation model
+    backup_api_key: str | None = field(default=None, repr=False)  # second provider, used when the first is busy
+    backup_base_url: str = DEFAULT_BACKUP_BASE_URL
+    backup_model: str = DEFAULT_BACKUP_MODEL
+
+    @property
+    def backup_models(self) -> tuple[str, ...]:
+        return parse_models(self.backup_model) if self.backup_api_key else ()
 
     @property
     def models(self) -> tuple[str, ...]:
@@ -101,8 +113,12 @@ def get_llm_settings() -> LlmSettings:
     escalate = _env("MODEL_ESCALATE")
     if not parse_models(escalate):
         escalate = DEFAULT_LLM_MODEL_ESCALATE
+    backup_key = (os.environ.get("LLM_BACKUP_API_KEY") or "").strip() or None
+    backup_base = (os.environ.get("LLM_BACKUP_BASE_URL") or "").strip() or DEFAULT_BACKUP_BASE_URL
+    backup_model = (os.environ.get("LLM_BACKUP_MODEL") or "").strip() or DEFAULT_BACKUP_MODEL
     return LlmSettings(api_key=key, base_url=base, model=model, model_interactive=interactive,
-                       model_escalate=escalate)
+                       model_escalate=escalate, backup_api_key=backup_key, backup_base_url=backup_base,
+                       backup_model=backup_model)
 
 
 def get_auth_settings():

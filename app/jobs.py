@@ -271,7 +271,7 @@ def _reflection_tick(db_path: str, llm, now: datetime) -> list[int]:
 def upkeep_tick(db_path: str, llm) -> None:
     """Catch-up work after each scheduler pass: vectors and facts for new or edited entries and
     vectors for memory notes. Small batches; any failure waits for the next pass."""
-    from . import config, embeddings, extract  # lazy: keeps this module light for the tests
+    from . import config, embeddings, extract, people  # lazy: keeps this module light for the tests
 
     conn = connect(db_path)
     try:
@@ -284,6 +284,9 @@ def upkeep_tick(db_path: str, llm) -> None:
                 log.info("upkeep embeddings failed reason=%s", exc.reason)
         if extract.missing_count(conn):
             extract.fill_missing(conn, resolve_llm(llm))
+        people.sync(conn)
+        if people._due(conn) is not None:
+            people.refresh_due(conn, resolve_llm(llm))
     finally:
         conn.close()
 
@@ -311,5 +314,11 @@ async def scheduler_loop(db_path: str, llm, interval_seconds: float = 300,
             await asyncio.to_thread(upkeep_tick, db_path, llm)
         except Exception as exc:
             log.warning("upkeep failed: %s", type(exc).__name__)
+        try:
+            from . import push  # lazy, like the upkeep imports
+
+            await asyncio.to_thread(push.reminder_tick, db_path)
+        except Exception as exc:
+            log.warning("reminder failed: %s", type(exc).__name__)
         if await stopped_within(interval_seconds):
             return

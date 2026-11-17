@@ -69,6 +69,13 @@ def delete_entry(conn: sqlite3.Connection, entry_id: int) -> None:
     conn.commit()
 
 
+def list_for_day(conn: sqlite3.Connection, local_day: str) -> list[sqlite3.Row]:
+    """Every entry written on one local day (YYYY-MM-DD), newest first."""
+    return conn.execute(
+        "SELECT * FROM entries WHERE local_date = ? ORDER BY created_at DESC, id DESC", (local_day,)
+    ).fetchall()
+
+
 def list_entries(
     conn: sqlite3.Connection, limit: int = 100, before: tuple[str, int] | None = None
 ) -> list[sqlite3.Row]:

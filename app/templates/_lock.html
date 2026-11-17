@@ -1,0 +1,28 @@
+{# The unlock sheet. On every page of a device with an app lock it sits hidden until the lock
+   closes (static/lock.js); on /locked it is the whole page (standalone) and works without scripts. #}
+<div id="lock" class="lock"{% if not standalone %} hidden{% endif %} role="dialog" aria-modal="true" aria-labelledby="lock-title"
+     data-mode="{{ lock.mode }}" data-after="{{ lock.after }}" data-ping="{{ lock.ping }}"
+     data-standalone="{{ '1' if standalone else '0' }}" data-next="{{ next or '/' }}">
+  <form class="lock-card" id="lock-form" method="post" action="/unlock">
+    <span class="lock-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="3"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"/></svg></span>
+    <h1 class="lock-name" id="lock-title">Animus is locked</h1>
+    <p class="lock-lede">{% if lock.passkey %}Use your fingerprint or face to open your journal.{% else %}Enter your password to open your journal.{% endif %}</p>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ next or '/' }}">
+    {% if lock.passkey %}
+    <button class="btn-main lock-wide" type="button" id="lock-passkey" hidden>Unlock with fingerprint</button>
+    <p class="lock-or" id="lock-or" hidden>or use your password</p>
+    {% endif %}
+    <label class="visually-hidden" for="lock-password">Password</label>
+    <input class="login-field lock-field" id="lock-password" name="password" type="password" autocomplete="current-password"
+           maxlength="200" placeholder="Password" required>
+    <p class="msg msg-error lock-msg" id="lock-msg" role="alert"{% if not message %} hidden{% endif %}>{{ message or '' }}</p>
+    <button class="{{ 'btn-quiet' if lock.passkey else 'btn-main' }} lock-wide" type="submit" id="lock-submit">Unlock</button>
+  </form>
+  <form class="lock-out" method="post" action="/logout">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="lock-link" type="submit">Log out instead</button>
+  </form>
+</div>
+<script src="/static/passkey.js?v=1" defer></script>
+<script src="/static/lock.js?v=1" defer></script>

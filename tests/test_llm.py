@@ -524,3 +524,59 @@ def test_default_thinking_400_not_retried():
     with pytest.raises(LLMError) as ei:
         client(h).complete_json("s", "u")
     assert ei.value.reason == "http_4xx" and len(log) == 1
+
+
+# ---- backup provider (used only when the main provider is busy or down) ----
+
+BACKUP_KEY = "or-backup-" + "KEY-456"
+
+
+def backup_client(main_status, backup_status=200):
+    asked = []
+
+    def handler(request):
+        host = request.url.host
+        asked.append(host)
+        if host == "main.test":
+            return httpx.Response(main_status, text="x")
+        assert request.headers["authorization"] == f"Bearer {BACKUP_KEY}"
+        return httpx.Response(backup_status, json=chat('{"from": "backup"}'))
+
+    s = LlmSettings(api_key=KEY, base_url="https://main.test/v1", model="m",
+                    backup_api_key=BACKUP_KEY, backup_base_url="https://backup.test/v1", backup_model="free-1")
+    return LlmClient(s, transport=httpx.MockTransport(handler)), asked
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_backup_provider_answers_when_main_is_busy(status):
+    c, asked = backup_client(status)
+    assert c.complete_json("s", "u") == {"from": "backup"}
+    assert asked == ["main.test", "backup.test"]
+    assert c.last_model == "free-1"
+
+
+def test_backup_not_used_for_key_errors():
+    c, asked = backup_client(401)
+    with pytest.raises(LLMError) as ei:
+        c.complete_json("s", "u")
+    assert ei.value.reason == "http_401" and asked == ["main.test"]
+
+
+def test_backup_failure_raises_the_main_error():
+    c, asked = backup_client(429, backup_status=429)
+    with pytest.raises(LLMError) as ei:
+        c.complete_json("s", "u")
+    assert ei.value.reason == "http_429" and asked == ["main.test", "backup.test"]
+
+
+def test_no_backup_without_backup_key():
+    s = LlmSettings(api_key=KEY, base_url="https://main.test/v1", model="m")
+    asked = []
+
+    def handler(request):
+        asked.append(request.url.host)
+        return httpx.Response(429, text="x")
+
+    with pytest.raises(LLMError):
+        LlmClient(s, transport=httpx.MockTransport(handler)).complete_json("s", "u")
+    assert asked == ["main.test"]

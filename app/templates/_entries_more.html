@@ -1,3 +1,4 @@
+{% if day_label %}<li class="day-filter"><span>Written on <b>{{ day_label }}</b></span><a class="textlink inline day-clear" href="/entries" hx-get="/entries" hx-target="#entries" hx-swap="innerHTML">Show all entries</a></li>{% if not rows %}<li class="more end">Nothing was written that day.</li>{% endif %}{% endif %}
 {% for e in rows %}{% include "_entry_row.html" %}{% endfor %}
 {% if next_cursor %}
 <li class="more"><a class="btn-older" href="/entries?before={{ next_cursor|urlencode }}" hx-get="/entries?before={{ next_cursor|urlencode }}" hx-target="closest li" hx-swap="outerHTML">Older entries</a></li>

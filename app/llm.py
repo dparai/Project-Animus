@@ -66,6 +66,10 @@ _FALLBACK_REASONS = frozenset({
 _INTERACTIVE_FALLBACK_REASONS = _FALLBACK_REASONS | {"truncated"}
 
 
+# Only a busy or unreachable main provider hands over to the backup provider (never key or request errors).
+_BACKUP_REASONS = frozenset({"http_429", "http_5xx", "http_408", "timeout", "unreachable"})
+
+
 def escalation_model() -> str:
     """The strongest interactive model, the only one Ask escalates to (LLM_MODEL_ESCALATE)."""
     return get_llm_settings().escalation_model
@@ -97,11 +101,27 @@ class LlmClient:
         if not s.api_key:
             raise LLMError("no API key configured", retryable=False, reason="no_key")
         models = tuple(models) if models else (parse_models(s.model) or (s.model,))
+        try:
+            return self._run_models(models, s.api_key, s.base_url, system, user, max_tokens, read_timeout, thinking)
+        except LLMError as exc:
+            backup = s.backup_models
+            if exc.reason not in _BACKUP_REASONS or not backup:
+                raise
+            log.info("llm backup provider reason=%s", exc.reason)
+            try:
+                return self._run_models(backup, s.backup_api_key, s.backup_base_url, system, user,
+                                        max_tokens, read_timeout, thinking)
+            except LLMError as backup_exc:
+                log.info("llm backup failed reason=%s", backup_exc.reason)
+                raise exc from None
+
+    def _run_models(self, models: tuple[str, ...], api_key: str, base_url: str, system: str, user: str,
+                    max_tokens: int, read_timeout: float | None, thinking: bool) -> dict:
         any_retryable = False
         fallback = _FALLBACK_REASONS if read_timeout is None else _INTERACTIVE_FALLBACK_REASONS
         for i, model in enumerate(models):
             try:
-                result = self._attempt(model, system, user, max_tokens, read_timeout, thinking)
+                result = self._attempt(model, system, user, max_tokens, read_timeout, thinking, api_key, base_url)
             except LLMError as exc:
                 any_retryable = any_retryable or exc.retryable
                 if exc.reason not in fallback or i == len(models) - 1:
@@ -114,20 +134,23 @@ class LlmClient:
         raise AssertionError("unreachable")  # pragma: no cover
 
     def _attempt(self, model: str, system: str, user: str, max_tokens: int,
-                 read_timeout: float | None, thinking: bool) -> dict:
+                 read_timeout: float | None, thinking: bool, api_key: str, base_url: str) -> dict:
         no_think = not thinking and model not in self._no_thinking_kwarg
         try:
-            return self._complete_one(model, system, user, max_tokens, read_timeout, no_think)
+            return self._complete_one(model, system, user, max_tokens, read_timeout, no_think, api_key, base_url)
         except LLMError as exc:
             if not (no_think and exc.reason == "http_4xx" and exc.status in (400, 422)):
                 raise
         # The model rejected the unknown field: remember it and retry once without it.
         self._no_thinking_kwarg.add(model)
-        return self._complete_one(model, system, user, max_tokens, read_timeout, False)
+        return self._complete_one(model, system, user, max_tokens, read_timeout, False, api_key, base_url)
 
     def _complete_one(self, model: str, system: str, user: str, max_tokens: int,
-                      read_timeout: float | None = None, no_think: bool = False) -> dict:
+                      read_timeout: float | None = None, no_think: bool = False,
+                      api_key: str | None = None, base_url: str | None = None) -> dict:
         s = self._settings
+        api_key = api_key or s.api_key
+        base_url = base_url or s.base_url
         timeout = TIMEOUT if read_timeout is None else httpx.Timeout(
             connect=TIMEOUT.connect, read=read_timeout, write=TIMEOUT.write, pool=TIMEOUT.pool)
         body = {
@@ -141,8 +164,8 @@ class LlmClient:
         }
         if no_think:
             body["chat_template_kwargs"] = {"enable_thinking": False}
-        headers = {"Authorization": f"Bearer {s.api_key}"}
-        url = s.base_url.rstrip("/") + "/chat/completions"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        url = base_url.rstrip("/") + "/chat/completions"
         try:
             with httpx.Client(transport=self._transport, timeout=timeout) as http:
                 resp = http.post(url, json=body, headers=headers)

@@ -17,6 +17,8 @@ Animus is a journaling tool, not a therapist, doctor or crisis service. The Coun
 - **Ask My Journal**: a question is answered from your best-matching entries, with quotes and dates that are verified against the entries before they are shown. If the journal does not mention it, it says so.
 - **Counselor chat** with a memory built slowly: when a chat ends (or sits idle for 6 hours) a few short notes are written to the Memory page, where you can delete any of them.
 - **Password login** (one owner, bcrypt) and **daily database backups** with retention.
+- **App lock per device**: no lock, fingerprint or face (a passkey), or the password, with a timer. The server enforces it, the page blurs in the background, and Settings lists your devices with a sign-out for each. A passkey can also log you in.
+- **Daily reminder** by Web Push (Android, desktop, and iPhone once added to the Home Screen): one notification a day if you have not written yet. The push carries no text at all.
 
 ## Privacy
 
@@ -63,6 +65,8 @@ Environment variables (put them in `.env`; see `.env.example`):
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ANIMUS_PASSWORD_HASH` | none | bcrypt hash of the login password, written by `scripts.set_password`. Required. |
+| `ANIMUS_VAPID_PRIVATE_KEY` | none | Signing key for the daily reminder, written by `python -m scripts.make_push_key`. Without it the reminder is off. |
+| `ANIMUS_VAPID_SUBJECT` | `https://<first allowed host>` | Contact address shown to push services (`https://...` or `mailto:...`). |
 | `ANIMUS_SESSION_SECRET` | none | signs session cookies (at least 32 characters), written by `scripts.set_password`. Required. |
 | `ANIMUS_DB_PATH` | `data/vault.db` next to the code | SQLite database file |
 | `ANIMUS_BACKUP_DIR` | `backups/` next to the code | where `scripts.backup` writes copies |
