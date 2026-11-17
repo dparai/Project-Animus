@@ -28,30 +28,19 @@
   </div>
   {% endif %}
 
-  <section class="orbit-wrap" aria-label="Map of the people in your journal">
-    <div class="map-tools">
-      <div class="zoom" role="group" aria-label="Zoom the map">
-        <button type="button" class="zbtn" data-zoom="-1" aria-label="Zoom out">&minus;</button>
-        <button type="button" class="zbtn" data-zoom="1" aria-label="Zoom in">+</button>
-        <button type="button" class="zbtn zreset" data-zoom="0" aria-label="Reset the map">Reset</button>
-      </div>
-    </div>
+  <section class="orbit-wrap" aria-label="Map of the people closest to you in your journal">
     <div class="orbit" id="orbit">
-      <div class="stage" id="stage">
-        {% for size in orbit.rings %}<i class="orbit-ring" style="--d:{{ size }}%; --n:{{ loop.index0 }}" aria-hidden="true"></i>{% endfor %}
-        <svg class="wires" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
-        <span class="you" aria-hidden="true">You</span>
-        {% for set in (orbit,) %}
-        <div class="set">
-          {% for p in set.people %}
-          <a class="orb r{{ p.ring }}{% if not p.recent %} quiet{% endif %}" href="/people/{{ p.id }}" data-id="{{ p.id }}" data-name="{{ p.name }}" data-count="{{ p.count }}" data-recent="{{ p.recent }}" data-last="{{ p.last or '' }}" data-relation="{{ p.relation }}" data-near="{{ near.get(p.id, [])|join(',') }}" data-x="{{ p.x }}" data-y="{{ p.y }}" style="--x:{{ p.x }}%; --y:{{ p.y }}%; --i:{{ p.slot }}" aria-label="{{ p.name }}, in {{ p.count }} {{ 'entry' if p.count == 1 else 'entries' }}">
-            <span class="av tone-{{ p.tone }}" aria-hidden="true">{{ p.initial }}</span>
-            <span class="orb-name" aria-hidden="true">{{ p.name }}</span>
-          </a>
-          {% endfor %}
-        </div>
-        {% endfor %}
+      <svg class="tracks" viewBox="0 0 100 100" aria-hidden="true">{% for r in orbit.rings %}<circle cx="50" cy="50" r="{{ r }}"/>{% endfor %}</svg>
+      <svg class="wires" viewBox="0 0 100 100" aria-hidden="true"></svg>
+      <span class="you" aria-hidden="true">You</span>
+      {% for p in orbit.people %}
+      <div class="arm" style="--a:{{ p.deg }}deg; --dur:{{ p.lap }}s; --i:{{ p.slot }}">
+        <a class="orb r{{ p.ring }}{% if not p.recent %} quiet{% endif %}" href="/people/{{ p.id }}" data-id="{{ p.id }}" data-name="{{ p.name }}" data-count="{{ p.count }}" data-recent="{{ p.recent }}" data-last="{{ p.last or '' }}" data-relation="{{ p.relation }}" data-near="{{ near.get(p.id, [])|join(',') }}" style="--r:{{ p.r }}; --i:{{ p.slot }}" aria-label="{{ p.name }}, in {{ p.count }} {{ 'entry' if p.count == 1 else 'entries' }}">
+          <span class="av tone-{{ p.tone }}" aria-hidden="true">{{ p.initial }}</span>
+          <span class="orb-name" aria-hidden="true">{{ p.name }}</span>
+        </a>
       </div>
+      {% endfor %}
     </div>
     <div class="pcard" id="pcard" hidden aria-live="polite">
       <div class="pcard-top">
@@ -62,12 +51,12 @@
       <p class="pcard-near" id="pcard-near"></p>
       <a class="btn-main pad link-btn-a" id="pcard-open" href="#">Open page</a>
     </div>
-    {% if orbit.rest %}<p class="hint orbit-rest">{{ orbit.rest }} more in the list.</p>{% endif %}
-    <p class="hint map-hint">Tap a person to see more. Nearer the middle means written about more. Drag to move, pinch or use + and &minus; to zoom.</p>
+    {% if orbit.rest %}<p class="hint orbit-rest">The {{ orbit.people|length }} closest to you are on the four orbits. {{ orbit.rest }} more in the list.</p>{% endif %}
+    <p class="hint map-hint">Tap a person to see more. The ones you write about most circle closest to you.</p>
   </section>
 
-  <ul class="plist" aria-label="People, most written about first">
-    {% for p in confirmed %}
+  <ul class="plist" aria-label="People, A to Z">
+    {% for p in confirmed|sort(attribute='name') %}
     <li>
       <a class="prow" href="/people/{{ p.id }}">
         <span class="av tone-{{ p.tone }}" aria-hidden="true">{{ p.initial }}</span>
@@ -180,47 +169,37 @@
     try { if (localStorage.getItem('animus-people') === 'list') { show('list'); } } catch (err) {}
   })();
 
-  // The map: tap a person for a card, order it, zoom and drag.
+  // The map: tap a person for a card. Everything holds still while a card is open.
   (function () {
     var orbit = document.getElementById('orbit');
     if (!orbit) { return; }
-    var stage = document.getElementById('stage');
-    var sets = stage.querySelectorAll('.set');
-    var wires = stage.querySelector('.wires');
+    var wires = orbit.querySelector('.wires');
     var card = document.getElementById('pcard');
-    var picked = null, scale = 1, tx = 0, ty = 0, moved = false;
+    var picked = null;
     var names = {};
-    stage.querySelectorAll('.orb').forEach(function (o) { names[o.getAttribute('data-id')] = o.getAttribute('data-name'); });
+    orbit.querySelectorAll('.orb').forEach(function (o) { names[o.getAttribute('data-id')] = o.getAttribute('data-name'); });
 
-    function activeSet() { return stage.querySelector('.set:not([hidden])'); }
-    function orbs() { return activeSet().querySelectorAll('.orb'); }
-    function apply() {
-      scale = Math.max(1, Math.min(3, scale));
-      var lim = (scale - 1) * orbit.clientWidth / 2;
-      tx = Math.max(-lim, Math.min(lim, tx)); ty = Math.max(-lim, Math.min(lim, ty));
-      orbit.classList.toggle('zoomed', scale > 1);
-      stage.style.transform = 'translate3d(' + tx + 'px,' + ty + 'px,0) scale(' + scale + ')';
-    }
-    var queued = false;
-    function later() {  // many pointer or wheel events a frame: draw once
-      if (queued) { return; }
-      queued = true;
-      requestAnimationFrame(function () { queued = false; apply(); });
+    function centre(o) {  // where an avatar is now, as a percentage of the map
+      var r = o.querySelector('.av').getBoundingClientRect(), m = orbit.getBoundingClientRect();
+      return [((r.left + r.width / 2 - m.left) / m.width) * 100, ((r.top + r.height / 2 - m.top) / m.height) * 100];
     }
     function clear() {
       picked = null; card.hidden = true; wires.innerHTML = '';
-      stage.querySelectorAll('.orb').forEach(function (o) { o.classList.remove('dim', 'sel'); });
+      orbit.classList.remove('hold');
+      orbit.querySelectorAll('.orb').forEach(function (o) { o.classList.remove('dim', 'sel'); });
     }
     function select(o) {
       clear();
       picked = o.getAttribute('data-id');
+      orbit.classList.add('hold');
       var near = o.getAttribute('data-near') ? o.getAttribute('data-near').split(',') : [];
-      var lines = '';
-      orbs().forEach(function (x) {
+      var lines = '', me = centre(o);
+      orbit.querySelectorAll('.orb').forEach(function (x) {
         var id = x.getAttribute('data-id');
         if (id === picked) { x.classList.add('sel'); return; }
         if (near.indexOf(id) < 0) { x.classList.add('dim'); return; }
-        lines += '<line x1="' + o.getAttribute('data-x') + '" y1="' + o.getAttribute('data-y') + '" x2="' + x.getAttribute('data-x') + '" y2="' + x.getAttribute('data-y') + '"/>';
+        var p = centre(x);
+        lines += '<line x1="' + me[0].toFixed(2) + '" y1="' + me[1].toFixed(2) + '" x2="' + p[0].toFixed(2) + '" y2="' + p[1].toFixed(2) + '"/>';
       });
       wires.innerHTML = lines;
       var n = Number(o.getAttribute('data-count'));
@@ -236,44 +215,13 @@
       document.getElementById('pcard-open').setAttribute('href', o.getAttribute('href'));
       card.hidden = false;
     }
-    stage.addEventListener('click', function (e) {
+    orbit.addEventListener('click', function (e) {
       var o = e.target.closest('.orb');
-      if (!o) { if (!moved) { clear(); } return; }
+      if (!o) { clear(); return; }
       e.preventDefault();
-      if (moved) { return; }
       if (picked === o.getAttribute('data-id')) { clear(); } else { select(o); }
     });
     document.getElementById('pcard-x').addEventListener('click', clear);
-
-    document.querySelectorAll('[data-zoom]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var d = Number(b.getAttribute('data-zoom'));
-        if (d === 0) { scale = 1; tx = 0; ty = 0; } else { scale += d * 0.4; }
-        stage.classList.add('glide'); apply();
-        setTimeout(function () { stage.classList.remove('glide'); }, 220);
-      });
-    });
-    orbit.addEventListener('wheel', function (e) { e.preventDefault(); scale += e.deltaY < 0 ? 0.2 : -0.2; later(); }, { passive: false });
-
-    var pts = {}, startDist = 0, startScale = 1, last = null;
-    function dist() { var k = Object.keys(pts); var a = pts[k[0]], b = pts[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); }
-    orbit.addEventListener('pointerdown', function (e) {
-      pts[e.pointerId] = { x: e.clientX, y: e.clientY }; moved = false;
-      if (Object.keys(pts).length === 2) { startDist = dist(); startScale = scale; }
-      last = { x: e.clientX, y: e.clientY };
-    });
-    orbit.addEventListener('pointermove', function (e) {
-      if (!pts[e.pointerId]) { return; }
-      pts[e.pointerId] = { x: e.clientX, y: e.clientY };
-      if (Object.keys(pts).length === 2) { scale = startScale * dist() / startDist; moved = true; later(); return; }
-      if (scale <= 1) { return; }
-      var dx = e.clientX - last.x, dy = e.clientY - last.y;
-      if (Math.abs(dx) + Math.abs(dy) > 3) { moved = true; }
-      tx += dx; ty += dy; last = { x: e.clientX, y: e.clientY }; later();
-    });
-    function up(e) { delete pts[e.pointerId]; setTimeout(function () { moved = false; }, 0); }
-    orbit.addEventListener('pointerup', up);
-    orbit.addEventListener('pointercancel', up);
   })();
 </script>
 {% endblock %}

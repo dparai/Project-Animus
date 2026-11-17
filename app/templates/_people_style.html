@@ -23,41 +23,29 @@
 
   /* The map: you in the middle, people on rings. Nearest ring = written about most. */
   .orbit-wrap { display: grid; justify-items: center; }
-  .orbit { position: relative; width: min(100%, 460px); aspect-ratio: 1; margin: 6px 0 12px; overflow: hidden; border-radius: 28px; touch-action: pan-y; contain: layout paint; }
-  .orbit.zoomed { touch-action: none; cursor: grab; }
-  .stage { position: absolute; inset: 0; transform-origin: 50% 50%; will-change: transform; }
-  .stage.glide { transition: transform 200ms var(--ease); }
-  .set { position: absolute; inset: 0; }
-  .set[hidden] { display: none; }
-  .wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  .wires line { stroke: var(--accent); stroke-width: 0.45; stroke-linecap: round; opacity: 0.7; vector-effect: non-scaling-stroke; stroke-width: 1.5; }
-  .orb.dim { opacity: 0.28; }
-  .orb.sel .av { scale: 1.18; outline: 2px solid var(--accent); }
-  .orb { cursor: pointer; }
-  /* Not ".ring": Tailwind owns that class name (a blue focus ring). */
-  .orbit-ring { position: absolute; left: 50%; top: 50%; width: var(--d); height: var(--d); translate: -50% -50%; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.11); background: radial-gradient(closest-side, rgba(255, 180, 107, 0.05), transparent 70%); }
+  .orbit { position: relative; width: min(100%, 460px); aspect-ratio: 1; margin: 6px 0 12px; overflow: hidden; border-radius: 28px; container-type: size; background: radial-gradient(closest-side, rgba(255, 180, 107, 0.07), transparent 78%); }
+  .tracks, .wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .tracks circle { fill: none; stroke: rgba(255, 255, 255, 0.1); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .wires line { stroke: var(--accent); stroke-linecap: round; opacity: 0.7; vector-effect: non-scaling-stroke; stroke-width: 1.5; }
   .you { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; background: var(--accent-grad); color: var(--on-accent); font-family: var(--font-serif); font-size: 21px; box-shadow: 0 12px 34px -10px #ff7d58, inset 0 1px 0 rgba(255, 255, 255, 0.4); }
-  .orb { position: absolute; left: var(--x); top: var(--y); display: flex; flex-direction: column; align-items: center; width: 0; height: 0; text-decoration: none; color: var(--text); }
+  /* Each person sits on an arm that turns slowly around "You"; the person turns back the same amount so names stay upright. */
+  .arm { position: absolute; left: 50%; top: 50%; width: 0; height: 0; rotate: var(--a); }
+  .orb { position: absolute; left: calc(var(--r) * 1cqw); top: 0; display: flex; flex-direction: column; align-items: center; width: 0; height: 0; text-decoration: none; color: var(--text); cursor: pointer; rotate: calc(var(--a) * -1); }
   .orb > * { flex: none; }
-  .orb .av { translate: 0 -50%; outline: 1px dashed rgba(255, 255, 255, 0.28); outline-offset: 4px; transition: scale 220ms var(--ease), outline-color 220ms var(--ease); }
-  .orb.r2 .av { width: 38px; height: 38px; font-size: 19px; }
-  .orb.r3 .av { width: 32px; height: 32px; font-size: 16px; outline-offset: 3px; }
-  .orb-name { margin-top: -16px; max-width: 78px; padding: 0 2px; font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); }
-  .orb.r2 .orb-name { margin-top: -13px; max-width: 66px; font-size: 11.5px; }
-  .orb.r3 .orb-name { margin-top: -11px; max-width: 58px; font-size: 11px; line-height: 14px; color: var(--muted); }
-  @media (min-width: 520px) { .orb-name, .orb.r2 .orb-name, .orb.r3 .orb-name { max-width: 96px; font-size: 12px; } }
+  .orb .av { translate: 0 -50%; outline: 1px dashed rgba(255, 255, 255, 0.28); outline-offset: 4px; transition: scale 220ms var(--ease), outline-color 220ms var(--ease); box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 22px -4px currentColor, 0 8px 18px -8px rgba(0,0,0,0.7); }
+  .orb.r1 .av { width: 54px; height: 54px; font-size: 27px; }
+  .orb.r2 .av { width: 40px; height: 40px; font-size: 20px; }
+  .orb.r3 .av, .orb.r4 .av { width: 34px; height: 34px; font-size: 17px; outline-offset: 3px; }
+  .orb-name { margin-top: -16px; max-width: 90px; padding: 0 2px; font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); }
+  .orb.r2 .orb-name { margin-top: -13px; font-size: 11.5px; }
+  .orb.r3 .orb-name, .orb.r4 .orb-name { margin-top: -11px; font-size: 11px; line-height: 14px; color: var(--muted); }
   .orb.quiet .av { opacity: 0.62; }
-  .orb:hover .av { scale: 1.1; outline-color: var(--accent); }
+  .orb:hover .av, .orb.sel .av { scale: 1.12; outline-color: var(--accent); box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 0 28px 2px rgba(255,180,107,0.55); }
+  .orb.dim { opacity: 0.28; }
   .orb:focus-visible { outline: none; }
   .orb:focus-visible .av { outline: 2px solid var(--text); outline-offset: 3px; }
   .orbit-rest { margin-top: 0; }
   .map-hint { margin-top: 4px; text-align: center; }
-  .map-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; width: min(100%, 460px); }
-  .seg-s .seg-btn { min-height: 32px; padding: 0 12px; font-size: 12.5px; }
-  .zoom { display: flex; gap: 4px; }
-  .zbtn { min-height: 36px; min-width: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,0.06); color: var(--text); font: inherit; cursor: pointer; }
-  .zbtn:hover { background: rgba(255,255,255,0.12); }
-  .zreset { font-size: 12px; }
   .pcard { width: min(100%, 460px); box-sizing: border-box; display: grid; gap: 6px; justify-items: start; margin-top: 6px; padding: 14px 16px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--glass-edge); }
   .pcard[hidden] { display: none; }
   .pcard-top { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; }
@@ -65,6 +53,9 @@
   .pcard-x { min-width: 36px; min-height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 22px; cursor: pointer; }
   .pcard-meta, .pcard-near { margin: 0; color: var(--muted); font-size: 13px; line-height: 20px; }
   .pcard-near:empty { display: none; }
+  .orbit-wrap { display: grid; justify-items: center; }
+  .ppl[data-view="list"] .orbit-wrap, .ppl[data-view="map"] .plist { display: none; }
+
   .todo { display: grid; gap: 6px; }
   .todo-a { display: block; padding: 12px 14px; border-radius: 16px; background: rgba(255,180,107,0.12); border: 1px solid rgba(255,180,107,0.4); color: var(--text); text-decoration: none; font-size: 14px; line-height: 20px; }
   .todo-a:hover { background: rgba(255,180,107,0.2); }
@@ -202,18 +193,21 @@
   .remove { margin: 4px 4px 0; padding-top: 4px; border-top: 1px solid var(--rule); }
 
   @media (prefers-reduced-motion: no-preference) {
-    /* The map opens outward: rings widen, then each person settles onto their ring, nearest first. */
-    .orbit-ring { animation: ring-in 700ms var(--ease) both; animation-delay: calc(var(--n) * 90ms); }
-    .you { animation: you-in 560ms var(--ease) both; }
-    .orb { animation: orb-in 640ms var(--ease) both; animation-delay: calc(160ms + var(--i) * 45ms); }
-    @keyframes ring-in { from { opacity: 0; scale: 0.55; } to { opacity: 1; scale: 1; } }
-    @keyframes you-in { from { opacity: 0; scale: 0.6; } to { opacity: 1; scale: 1; } }
+    /* Slow, steady turn: each of the four orbits turns together, the inner ones a little faster. */
+    .arm { animation: lap var(--dur) linear infinite; }
+    .orb { animation: lap-back var(--dur) linear infinite, orb-in 640ms var(--ease) both; animation-delay: 0s, calc(120ms + var(--i) * 45ms); }
+    .orbit.hold .arm, .orbit.hold .orb, .arm:has(.orb:hover), .arm:has(.orb:hover) .orb { animation-play-state: paused; }
+    .you { animation: you-in 560ms var(--ease) both, breathe 4.2s ease-in-out 600ms infinite; }
+    @keyframes lap { from { rotate: var(--a); } to { rotate: calc(var(--a) + 360deg); } }
+    @keyframes lap-back { from { rotate: calc(var(--a) * -1); } to { rotate: calc(var(--a) * -1 - 360deg); } }
     @keyframes orb-in { from { opacity: 0; scale: 0.6; } to { opacity: 1; scale: 1; } }
+    @keyframes you-in { from { opacity: 0; scale: 0.6; } to { opacity: 1; scale: 1; } }
+    @keyframes breathe { 0%, 100% { box-shadow: 0 12px 34px -10px #ff7d58, 0 0 0 0 rgba(255,125,88,0.35), inset 0 1px 0 rgba(255,255,255,0.4); } 50% { box-shadow: 0 12px 34px -10px #ff7d58, 0 0 0 16px rgba(255,125,88,0), inset 0 1px 0 rgba(255,255,255,0.4); } }
     .bar-fill { animation: bar-in 700ms var(--ease) both; transform-origin: left; }
     @keyframes bar-in { from { transform: scaleX(0.05); } to { transform: none; } }
   }
   @media (prefers-reduced-motion: reduce) {
-    .stage, .seg-btn, .prow, .orb .av, .read-btn, .back, .chip-p, .tl-link, .fold > summary::after, .text-in { transition: none; }
+    .seg-btn, .prow, .orb .av, .read-btn, .back, .chip-p, .tl-link, .fold > summary::after, .text-in { transition: none; }
     .orb:hover .av { scale: 1; }
     .prow:active, .read-btn:active { transform: none; }
   }

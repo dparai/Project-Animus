@@ -84,7 +84,7 @@ def test_confirm_counts_entries_and_orders_by_how_often(conn):
     assert [(c["name"], c["count"], c["recent"]) for c in view["confirmed"]] == [("Mira", 3, 3), ("Tom", 1, 0)]
     assert view["suggested"] == []
     spots = view["orbit"]["people"]
-    assert [s["name"] for s in spots] == ["Mira", "Tom"] and spots[0]["ring"] == 1 and spots[1]["ring"] > 1
+    assert [s["name"] for s in spots] == ["Mira", "Tom"] and [s["ring"] for s in spots] == [1, 1]
     assert all(0 < s["x"] < 100 and 0 < s["y"] < 100 for s in spots)
 
 
@@ -94,11 +94,13 @@ def test_map_puts_most_written_about_nearest_and_counts_the_rest(conn):
             _entry(conn, "2026-11-01", f"Met P{n:02d}.", [f"P{n:02d}"])
         _confirmed(conn, f"P{n:02d}")
     orbit = people.overview(conn, TODAY)["orbit"]
-    assert len(orbit["people"]) == people.MAP_MAX and orbit["rest"] == 30 - people.MAP_MAX
-    dist = [((p["x"] - 50) ** 2 + (p["y"] - 50) ** 2) ** 0.5 for p in orbit["people"]]
+    assert len(orbit["people"]) == people.MAP_MAX == 10 and orbit["rest"] == 30 - people.MAP_MAX
+    dist = [round(((p["x"] - 50) ** 2 + (p["y"] - 50) ** 2) ** 0.5, 1) for p in orbit["people"]]
     assert dist == sorted(dist) and orbit["people"][0]["name"] == "P00"  # more entries, nearer the middle
     assert len({(p["x"], p["y"]) for p in orbit["people"]}) == len(orbit["people"])  # nobody shares a spot
     assert all(0 < p["x"] < 100 and 0 < p["y"] < 100 for p in orbit["people"])
+    assert len(orbit["rings"]) == 4 and {p["r"] for p in orbit["people"]} == set(people.RING_RADIUS)  # four orbits only
+    assert [p["ring"] for p in orbit["people"]] == [1, 1, 2, 2, 3, 3, 3, 4, 4, 4]
 
 
 def test_ignored_name_stays_gone_and_is_not_offered_to_the_model(conn):
@@ -329,3 +331,31 @@ def test_people_needs_a_session_and_a_csrf_token(db_path, conn):
 def test_ask_page_prefills_the_question_safely(client):
     html = client.get("/ask", params={"q": 'What about "Mira" <b>?'}).text
     assert 'value="What about &#34;Mira&#34; &lt;b&gt;?"' in html
+
+
+def test_list_is_alphabetical_while_the_map_ranks_by_entries(client, conn):
+    for name, n in (("Zed", 5), ("amy", 1), ("Mira", 3)):
+        for _ in range(n):
+            _entry(conn, "2026-11-10", f"Saw {name}.", [name])
+        _confirmed(conn, name)
+    html = client.get("/people").text
+    rows = html.split('class="plist"')[1]
+    assert rows.index("amy") < rows.index("Mira") < rows.index("Zed")
+    assert [p["name"] for p in people.overview(conn, TODAY)["orbit"]["people"]] == ["Zed", "Mira", "amy"]
+
+
+def test_map_keeps_only_regularly_mentioned_people(conn):
+    for name, n in (("Often", 5), ("Twice", 2), ("Once", 1), ("Also", 3)):
+        for _ in range(n):
+            _entry(conn, "2026-11-10", f"Saw {name}.", [name])
+        _confirmed(conn, name)
+    orbit = people.overview(conn, TODAY)["orbit"]
+    assert [p["name"] for p in orbit["people"]] == ["Often", "Also", "Twice"] and orbit["rest"] == 1
+    assert all(p["r"] > 0 and isinstance(p["deg"], float) for p in orbit["people"])
+
+
+def test_a_young_journal_still_shows_its_top_few(conn):
+    for name in ("A", "B", "C", "D"):
+        _entry(conn, "2026-11-10", f"Saw {name}.", [name])
+        _confirmed(conn, name)
+    assert len(people.overview(conn, TODAY)["orbit"]["people"]) == people.MAP_AT_LEAST

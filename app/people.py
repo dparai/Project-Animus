@@ -27,8 +27,13 @@ READS = {"closer": "closer", "same": "about the same", "apart": "further apart"}
 NAME_MAX = 60
 RELATION_MAX = 80
 ALIASES_MAX = 12
-MAP_MAX = 24  # people drawn on the map; the rest are in the list
-RING_RADIUS = (19.0, 29.0, 40.0)  # percent of the map's width
+MAP_MAX = 10  # people on the map (the sum of RING_SLOTS): the ones written about most; the rest are in the list
+MAP_MIN_MENTIONS = 2  # one passing mention is not "close"
+MAP_AT_LEAST = 3  # but a young journal still shows its top few
+RING_RADIUS = (15.0, 24.0, 33.0, 42.0)  # the four orbits, nearest first (percent of the map's width)
+RING_SLOTS = (2, 2, 3, 3)  # people on each orbit: the closest two on the first, and so on
+RING_LAP = (70, 95, 120, 150)  # seconds for one turn of each orbit
+RING_START = (-90.0, -30.0, 20.0, 70.0)  # where each orbit's first person starts, in degrees
 GOLDEN = 2.399963  # each next person is turned by this angle, so names spread out and never stack
 TONES = 8  # avatar colours, see .tone-N in people.html
 RECENT_DAYS = 30
@@ -313,28 +318,28 @@ def overview(conn: sqlite3.Connection, today: date) -> dict:
 
 
 def orbit(confirmed: list[dict], order: str = "count") -> dict:
-    """Where each person sits on the map: the more entries, the nearer the middle (and the larger
-    the circle). Positions are percentages of a square, worked out here so the page needs no script.
-    order "recent" ranks by the last 30 days instead of all time."""
+    """Who is on the map and where. Four shared orbits around "You": the people written about most
+    on the inner ones, fewer entries further out. Everyone on one orbit turns together at one pace.
+    Positions are percentages of a square, worked out here so the page needs no script."""
     key = "recent" if order == "recent" else "count"
-    ranked = sorted(confirmed, key=lambda c: (-c[key], -c["count"], c["name"].casefold()))[:MAP_MAX]
-    n = len(ranked)
-    top = max((c[key] for c in ranked), default=0) or 1
-    placed = []
-    for i, card in enumerate(ranked):
-        by_rank = math.sqrt(i / (n - 1)) if n > 1 else 0.0
-        by_count = 1 - math.sqrt(card[key] / top)
-        far = 0.5 * by_rank + 0.5 * by_count  # 0 = nearest, 1 = farthest
-        radius = 15.0 + 25.0 * far
-        angle = -math.pi / 2 + i * GOLDEN
-        placed.append({
-            "id": card["id"], "name": card["name"], "initial": card["initial"], "tone": card["tone"],
-            "count": card["count"], "recent": card["recent"], "last": card["last"],
-            "relation": card["relation"], "ring": 1 if far < 0.34 else 2 if far < 0.67 else 3, "slot": i,
-            "x": round(50 + radius * math.cos(angle), 2), "y": round(50 + radius * math.sin(angle), 2),
-        })
-    rings = [round(r * 2, 2) for r in RING_RADIUS] if placed else []
-    return {"people": placed, "rings": rings, "rest": max(0, len(confirmed) - n), "order": key}
+    ordered = sorted(confirmed, key=lambda c: (-c[key], -c["count"], c["name"].casefold()))
+    close = [c for c in ordered if c["count"] >= MAP_MIN_MENTIONS]
+    ranked = (close if len(close) >= MAP_AT_LEAST else ordered[:MAP_AT_LEAST])[:sum(RING_SLOTS)]
+    placed, start = [], 0
+    for ring, (slots, radius) in enumerate(zip(RING_SLOTS, RING_RADIUS)):
+        group = ranked[start:start + slots]
+        start += slots
+        for slot, card in enumerate(group):
+            deg = RING_START[ring] + slot * 360.0 / len(group)
+            angle = math.radians(deg)
+            placed.append({
+                "id": card["id"], "name": card["name"], "initial": card["initial"], "tone": card["tone"],
+                "count": card["count"], "recent": card["recent"], "last": card["last"],
+                "relation": card["relation"], "ring": ring + 1, "slot": len(placed), "r": radius,
+                "deg": round(deg, 1), "lap": RING_LAP[ring],
+                "x": round(50 + radius * math.cos(angle), 2), "y": round(50 + radius * math.sin(angle), 2),
+            })
+    return {"people": placed, "rings": list(RING_RADIUS), "rest": max(0, len(confirmed) - len(placed)), "order": key}
 
 
 def _mood_share(rows) -> int | None:
